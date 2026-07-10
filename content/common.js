@@ -16,7 +16,7 @@
     yuanbao: { key: 'yuanbao', name: '元宝', host: 'yuanbao.tencent.com' },
     doubao:  { key: 'doubao',  name: '豆包', host: 'www.doubao.com' },
     qwen:    { key: 'qwen',    name: '通义千问', host: 'www.qianwen.com' },
-    kimi:    { key: 'kimi',    name: 'Kimi', host: 'kimi.moonshot.cn' },
+    kimi:    { key: 'kimi',    name: 'Kimi', host: 'www.kimi.com' },
     zhipu:   { key: 'zhipu',   name: '智谱清言', host: 'chatglm.cn' }
   };
 
@@ -238,6 +238,7 @@
    *   getInputEl(),         // 返回输入框（textarea/input/contenteditable）
    *   getSendBtn(),         // 返回发送按钮
    *   findDeepThinkingToggle(),  // 可选：返回深度思考开关元素
+   *   applyDeepThinking(enabled),  // 可选：自定义深度思考逻辑（如下拉框选择）
    * }
    */
   function runPlatform(config) {
@@ -290,6 +291,8 @@
 
     // 应用深度思考开关
     async function applyDeepThinking(enabled) {
+      // 优先使用平台自定义的深度思考逻辑（如下拉框选择）
+      if (config.applyDeepThinking) return config.applyDeepThinking(enabled);
       if (!config.findDeepThinkingToggle) return true;
       const toggle = await dom.waitFor(config.findDeepThinkingToggle, { timeout: 2500 });
       if (!toggle) { warn('deep-thinking toggle not found', config.key); return false; }
