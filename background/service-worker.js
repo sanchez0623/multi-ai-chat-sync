@@ -14,7 +14,7 @@ const PLATFORM_ORDER = ['yuanbao', 'doubao', 'qwen', 'kimi', 'zhipu'];
 const MATCH_PATTERNS = {
   yuanbao: ['https://yuanbao.tencent.com/*'],
   doubao:  ['https://www.doubao.com/*'],
-  qwen:    ['https://tongyi.aliyun.com/*', 'https://qianwen.aliyun.com/*'],
+  qwen:    ['https://www.qianwen.com/*'],
   kimi:    ['https://kimi.moonshot.cn/*', 'https://kimi.com/*'],
   zhipu:   ['https://chatglm.cn/*', 'https://chat.zhipu.ai/*']
 };
@@ -23,7 +23,7 @@ const MATCH_PATTERNS = {
 const HOME_URLS = {
   yuanbao: 'https://yuanbao.tencent.com/',
   doubao:  'https://www.doubao.com/',
-  qwen:    'https://tongyi.aliyun.com/',
+  qwen:    'https://www.qianwen.com/',
   kimi:    'https://kimi.moonshot.cn/',
   zhipu:   'https://chatglm.cn/'
 };
@@ -73,14 +73,27 @@ async function waitTabComplete(tabId, timeout = 15000) {
   return false;
 }
 
-/** 探测内容脚本是否就绪，最多重试若干次 */
+/** 获取标签页下所有 frame 的 frameId */
+async function getAllFrames(tabId) {
+  try {
+    const frames = await chrome.webNavigation.getAllFrames({ tabId });
+    return frames ? frames.map((f) => f.frameId) : [undefined];
+  } catch (e) {
+    return [undefined];
+  }
+}
+
+/** 探测内容脚本是否就绪，最多重试若干次；遍历所有 frame */
 async function pingTab(tabId, retries = 10) {
   for (let i = 0; i < retries; i++) {
-    try {
-      const resp = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
-      if (resp && resp.ok) return true;
-    } catch (e) {
-      // Receiving end does not exist yet
+    const frameIds = await getAllFrames(tabId);
+    for (const frameId of frameIds) {
+      try {
+        const resp = await chrome.tabs.sendMessage(tabId, { type: 'PING' }, { frameId });
+        if (resp && resp.ok) return true;
+      } catch (e) {
+        // Receiving end does not exist in this frame yet
+      }
     }
     await sleep(400);
   }
@@ -92,7 +105,8 @@ async function injectContentScripts(tabId, platformKey) {
   const files = CONTENT_SCRIPTS[platformKey];
   if (!files) return false;
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files });
+    // allFrames: 豆包等平台可能在子 frame 渲染聊天界面
+    await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files });
     return true;
   } catch (e) {
     console.warn('[AISync] inject failed:', platformKey, e && e.message);
@@ -134,14 +148,24 @@ async function sendToPlatform(platformKey, question, deepThinking, settings) {
     return { platform: platformKey, ok: false, error: '内容脚本未就绪（可能未登录或页面异常）' };
   }
 
-  try {
-    const resp = await chrome.tabs.sendMessage(tab.id, {
-      type: 'SUBMIT_QUESTION', question, deepThinking
-    });
-    return { platform: platformKey, ok: !!(resp && resp.ok), error: resp && resp.error };
-  } catch (e) {
-    return { platform: platformKey, ok: false, error: String(e && e.message) };
+  // 找到就绪的 frame，向其发送 SUBMIT_QUESTION
+  const frameIds = await getAllFrames(tab.id);
+  for (const frameId of frameIds) {
+    try {
+      const resp = await chrome.tabs.sendMessage(tab.id, {
+        type: 'SUBMIT_QUESTION', question, deepThinking
+      }, { frameId });
+      if (resp && resp.ok) {
+        return { platform: platformKey, ok: true };
+      }
+      if (resp && resp.platform === platformKey) {
+        return { platform: platformKey, ok: !!(resp && resp.ok), error: resp && resp.error };
+      }
+    } catch (e) {
+      // 该 frame 无接收端或无响应，继续尝试下一个
+    }
   }
+  return { platform: platformKey, ok: false, error: '未找到目标平台 frame' };
 }
 
 /**

@@ -1,5 +1,5 @@
 /*
- * 通义千问 (tongyi.aliyun.com / qianwen.aliyun.com) 平台适配
+ * 通义千问 (www.qianwen.com) 平台适配
  */
 (function () {
   'use strict';
