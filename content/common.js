@@ -242,6 +242,10 @@
    */
   function runPlatform(config) {
     const A = globalThis.AISYNC;
+    if (A.__registered && A.__registered[config.key]) {
+      A.log('platform already registered:', config.key);
+      return A.__registered[config.key];
+    }
     A.log('platform runner start:', config.key);
 
     let settings = null;
@@ -324,7 +328,10 @@
     });
 
     A.log('platform runner ready:', config.key);
-    return { submitQuestion, applyDeepThinking, captureAndBroadcast };
+    const api = { submitQuestion, applyDeepThinking, captureAndBroadcast };
+    if (!A.__registered) A.__registered = {};
+    A.__registered[config.key] = api;
+    return api;
   }
 
   globalThis.AISYNC = {
