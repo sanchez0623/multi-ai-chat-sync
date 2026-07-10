@@ -28,10 +28,13 @@
     'div[role="button"][aria-label*="发送"]',
     'div[role="button"][aria-label*="Send"]',
     'button[type="submit"]',
-    'button[class*="submit"]'
+    'button[class*="submit"]',
+    'div[class*="input"] button:last-child',
+    'div[class*="footer"] button:last-child',
+    'div[class*="bottom"] button:last-child'
   ];
 
-  const SEND_TEXTS = ['发送', 'Send', '发送消息'];
+  const SEND_TEXTS = ['发送', 'Send', '发送消息', 'submit', 'send'];
 
   const TOOLBAR_SELECTORS = [
     'div[class*="input"]',

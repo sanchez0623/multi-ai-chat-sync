@@ -19,10 +19,14 @@
     '#chat-input button[class*="send"]',
     'button[class*="send"]',
     'button[aria-label*="发送"]',
-    'button[type="submit"]'
+    'button[aria-label*="Send"]',
+    'button[type="submit"]',
+    '#chat-input button:last-child',
+    'div[class*="input"] button:last-child',
+    'div[class*="footer"] button:last-child'
   ];
 
-  const SEND_TEXTS = ['发送', '发送消息', 'Send'];
+  const SEND_TEXTS = ['发送', '发送消息', 'Send', 'submit', 'send'];
 
   // 深度思考开关所在容器（输入框工具栏）候选
   const TOOLBAR_SELECTORS = [

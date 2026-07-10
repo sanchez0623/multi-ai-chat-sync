@@ -16,11 +16,16 @@
   const SEND_SELECTORS = [
     'button[class*="send"]',
     'button[aria-label*="发送"]',
+    'button[aria-label*="Send"]',
     'div[role="button"][aria-label*="发送"]',
-    'button[type="submit"]'
+    'div[role="button"][aria-label*="Send"]',
+    'button[type="submit"]',
+    'div[class*="input"] button:last-child',
+    'div[class*="footer"] button:last-child',
+    'div[class*="bottom"] button:last-child'
   ];
 
-  const SEND_TEXTS = ['发送', 'Send'];
+  const SEND_TEXTS = ['发送', 'Send', 'submit', 'send'];
 
   const TOOLBAR_SELECTORS = [
     'div[class*="input"]',
