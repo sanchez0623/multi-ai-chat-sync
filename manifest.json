@@ -1,18 +1,18 @@
 {
   "manifest_version": 3,
   "name": "AI 多模型同步提问助手",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "在元宝/豆包/千问/Kimi/智谱中同步同一个问题，支持多选模型、按平台开关深度思考。",
   "permissions": [
     "storage",
     "tabs",
-    "scripting"
+    "scripting",
+    "webNavigation"
   ],
   "host_permissions": [
     "https://yuanbao.tencent.com/*",
     "https://www.doubao.com/*",
-    "https://tongyi.aliyun.com/*",
-    "https://qianwen.aliyun.com/*",
+    "https://www.qianwen.com/*",
     "https://kimi.moonshot.cn/*",
     "https://kimi.com/*",
     "https://chatglm.cn/*",
@@ -31,27 +31,32 @@
     {
       "matches": ["https://yuanbao.tencent.com/*"],
       "js": ["content/common.js", "content/yuanbao.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     },
     {
       "matches": ["https://www.doubao.com/*"],
       "js": ["content/common.js", "content/doubao.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     },
     {
-      "matches": ["https://tongyi.aliyun.com/*", "https://qianwen.aliyun.com/*"],
+      "matches": ["https://www.qianwen.com/*"],
       "js": ["content/common.js", "content/qwen.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     },
     {
       "matches": ["https://kimi.moonshot.cn/*", "https://kimi.com/*"],
       "js": ["content/common.js", "content/kimi.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     },
     {
       "matches": ["https://chatglm.cn/*", "https://chat.zhipu.ai/*"],
       "js": ["content/common.js", "content/zhipu.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }
