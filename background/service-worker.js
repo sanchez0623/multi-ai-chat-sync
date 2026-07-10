@@ -28,6 +28,15 @@ const HOME_URLS = {
   zhipu:   'https://chatglm.cn/'
 };
 
+// 各平台内容脚本文件列表（用于编程式注入兜底）
+const CONTENT_SCRIPTS = {
+  yuanbao: ['content/common.js', 'content/yuanbao.js'],
+  doubao:  ['content/common.js', 'content/doubao.js'],
+  qwen:    ['content/common.js', 'content/qwen.js'],
+  kimi:    ['content/common.js', 'content/kimi.js'],
+  zhipu:   ['content/common.js', 'content/zhipu.js']
+};
+
 const DEFAULTS = {
   targets: { yuanbao: true, doubao: true, qwen: true, kimi: true, zhipu: true },
   deepThinking: { yuanbao: false, doubao: false, qwen: false, kimi: false, zhipu: false },
@@ -78,6 +87,19 @@ async function pingTab(tabId, retries = 10) {
   return false;
 }
 
+/** 编程式注入内容脚本（兜底：标签页在扩展安装/更新前已打开时 manifest 不会补注入） */
+async function injectContentScripts(tabId, platformKey) {
+  const files = CONTENT_SCRIPTS[platformKey];
+  if (!files) return false;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files });
+    return true;
+  } catch (e) {
+    console.warn('[AISync] inject failed:', platformKey, e && e.message);
+    return false;
+  }
+}
+
 /** 向单个平台转发问题 */
 async function sendToPlatform(platformKey, question, deepThinking, settings) {
   const patterns = MATCH_PATTERNS[platformKey];
@@ -99,7 +121,15 @@ async function sendToPlatform(platformKey, question, deepThinking, settings) {
     await waitTabComplete(tab.id);
   }
 
-  const ready = await pingTab(tab.id);
+  let ready = await pingTab(tab.id);
+  if (!ready) {
+    // 内容脚本可能未注入（标签页在扩展安装/更新前已打开），尝试编程式注入后重试
+    const injected = await injectContentScripts(tab.id, platformKey);
+    if (injected) {
+      await sleep(300);
+      ready = await pingTab(tab.id);
+    }
+  }
   if (!ready) {
     return { platform: platformKey, ok: false, error: '内容脚本未就绪（可能未登录或页面异常）' };
   }
