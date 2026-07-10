@@ -178,13 +178,19 @@
 
     /** 查找发送按钮：先按选择器，再按 aria-label/文本匹配，最后兜底输入框附近的提交类按钮 */
     findSendButton(selectorCandidates, textCandidates) {
+      return dom.findSendButtonIn(document, selectorCandidates, textCandidates);
+    },
+
+    /** 查找发送按钮（限定在 root 范围内）：先按选择器，再按 aria-label/文本匹配 */
+    findSendButtonIn(root, selectorCandidates, textCandidates) {
+      root = root || document;
       // 1. 选择器优先
-      const el = dom.first(selectorCandidates || []);
+      const el = dom.first(selectorCandidates || [], root);
       if (el && !dom.isDisabled(el)) return el;
       // 2. aria-label / 文本匹配
       if (textCandidates && textCandidates.length) {
         const want = textCandidates.map((t) => t.trim());
-        const btns = document.querySelectorAll('button, div[role="button"], [type="submit"]');
+        const btns = root.querySelectorAll('button, a, div[role="button"], [type="submit"]');
         for (const b of btns) {
           if (dom.isDisabled(b)) continue;
           const al = (b.getAttribute('aria-label') || '').trim();
@@ -253,6 +259,7 @@
    *   getSendBtn(),         // 返回发送按钮
    *   findDeepThinkingToggle(),  // 可选：返回深度思考开关元素
    *   applyDeepThinking(enabled),  // 可选：自定义深度思考逻辑（如下拉框选择）
+   *   noEnterFallback,      // 可选：禁用回车兜底（部分 SPA 对合成 Enter 事件敏感会崩页）
    * }
    */
   function runPlatform(config) {
@@ -346,7 +353,11 @@
           return { ok: true };
         }
 
-        // 兜底：回车提交
+        // 兜底：回车提交（部分平台对合成 Enter 敏感，可通过 noEnterFallback 禁用）
+        if (config.noEnterFallback) {
+          warn('send button not found, enter fallback disabled', config.key);
+          return { ok: false, error: '发送按钮未找到' };
+        }
         warn('send button not found, fallback to Enter', config.key);
         submitByEnter(input);
         A.log('forwarded question to', config.key, 'via Enter');
