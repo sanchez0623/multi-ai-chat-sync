@@ -176,22 +176,36 @@
       return true;
     },
 
-    /** 查找发送按钮：先按选择器，再按 aria-label/文本匹配 */
+    /** 查找发送按钮：先按选择器，再按 aria-label/文本匹配，最后兜底输入框附近的提交类按钮 */
     findSendButton(selectorCandidates, textCandidates) {
+      // 1. 选择器优先
       const el = dom.first(selectorCandidates || []);
-      if (el) return el;
-      if (!textCandidates || !textCandidates.length) return null;
-      const want = textCandidates.map((t) => t.trim());
-      const btns = document.querySelectorAll('button, div[role="button"], [type="submit"]');
-      for (const b of btns) {
-        const al = (b.getAttribute('aria-label') || '').trim();
-        const txt = (b.textContent || '').trim();
-        const title = (b.getAttribute('title') || '').trim();
-        for (const w of want) {
-          if (al === w || txt === w || title === w || al.includes(w) || txt.includes(w)) return b;
+      if (el && !dom.isDisabled(el)) return el;
+      // 2. aria-label / 文本匹配
+      if (textCandidates && textCandidates.length) {
+        const want = textCandidates.map((t) => t.trim());
+        const btns = document.querySelectorAll('button, div[role="button"], [type="submit"]');
+        for (const b of btns) {
+          if (dom.isDisabled(b)) continue;
+          const al = (b.getAttribute('aria-label') || '').trim();
+          const txt = (b.textContent || '').trim();
+          const title = (b.getAttribute('title') || '').trim();
+          for (const w of want) {
+            if (al === w || txt === w || title === w || al.includes(w) || txt.includes(w)) return b;
+          }
         }
       }
       return null;
+    },
+
+    /** 判断元素是否处于禁用态 */
+    isDisabled(el) {
+      if (!el) return true;
+      if (el.disabled) return true;
+      if (el.getAttribute('aria-disabled') === 'true') return true;
+      const cls = typeof el.className === 'string' ? el.className : '';
+      if (/disabled|is-disabled/i.test(cls)) return true;
+      return false;
     },
 
     /** 真实点击 */
@@ -299,19 +313,43 @@
       return dom.setToggle(toggle, enabled);
     }
 
-    // 转发提问：填入文本 -> (可选)开启深度思考 -> 点击发送
+    // 用回车键提交（兜底方案，适用于找不到发送按钮时）
+    function submitByEnter(input) {
+      try {
+        input.focus();
+        const opts = { bubbles: true, cancelable: true, key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
+        input.dispatchEvent(new KeyboardEvent('keydown', opts));
+        input.dispatchEvent(new KeyboardEvent('keypress', opts));
+        input.dispatchEvent(new KeyboardEvent('keyup', opts));
+        return true;
+      } catch (e) {
+        warn('submitByEnter error', e);
+        return false;
+      }
+    }
+
+    // 转发提问：填入文本 -> (可选)开启深度思考 -> 点击发送（或回车兜底）
     async function submitQuestion(question, deepThinking) {
       A.forwarding = true;
       try {
         const input = await dom.waitFor(config.getInputEl, { timeout: 8000 });
         if (!input) return { ok: false, error: '输入框未找到' };
         await dom.setInputText(input, question);
-        await new Promise((r) => setTimeout(r, 250));
+        await new Promise((r) => setTimeout(r, 300));
         if (deepThinking) await applyDeepThinking(true);
+
+        // 优先点击发送按钮
         const btn = await dom.waitFor(config.getSendBtn, { timeout: 6000 });
-        if (!btn) return { ok: false, error: '发送按钮未找到' };
-        dom.click(btn);
-        A.log('forwarded question to', config.key);
+        if (btn) {
+          dom.click(btn);
+          A.log('forwarded question to', config.key, 'via button');
+          return { ok: true };
+        }
+
+        // 兜底：回车提交
+        warn('send button not found, fallback to Enter', config.key);
+        submitByEnter(input);
+        A.log('forwarded question to', config.key, 'via Enter');
         return { ok: true };
       } catch (e) {
         warn('submitQuestion error', config.key, e);

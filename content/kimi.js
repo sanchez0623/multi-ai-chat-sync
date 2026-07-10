@@ -29,10 +29,13 @@
     'div[role="button"][aria-label*="发送"]',
     'div[role="button"][aria-label*="Send"]',
     'button[type="submit"]',
-    'button[class*="submit"]'
+    'button[class*="submit"]',
+    'div[class*="editor-footer"] button:last-child',
+    'div[class*="footer"] button:last-child',
+    'div[class*="bottom"] button:last-child'
   ];
 
-  const SEND_TEXTS = ['发送', 'Send', '发送消息'];
+  const SEND_TEXTS = ['发送', 'Send', '发送消息', 'submit', 'send'];
 
   const TOOLBAR_SELECTORS = [
     'div[class*="input"]',
@@ -51,7 +54,25 @@
       return A.dom.first(INPUT_SELECTORS);
     },
     getSendBtn() {
-      return A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
+      // 1. 选择器 + 文本匹配
+      const btn = A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
+      if (btn && !A.dom.isDisabled(btn)) return btn;
+      // 2. 通过发送图标定位（Kimi 发送按钮为 <svg class="iconify send-icon" name="Send">，取其可点击祖先）
+      const icon = document.querySelector('svg.send-icon, .send-icon, svg[name="Send"]');
+      if (icon) {
+        const clickable = icon.closest('button, a, div[role="button"], [type="submit"], div[class*="send"], div[class*="submit"]');
+        if (clickable && !A.dom.isDisabled(clickable)) return clickable;
+        let parent = icon.parentElement;
+        while (parent && parent !== document.body) {
+          if (parent.tagName === 'BUTTON' || parent.tagName === 'A' ||
+              parent.getAttribute('role') === 'button' ||
+              /send|submit/i.test(parent.className || '')) {
+            if (!A.dom.isDisabled(parent)) return parent;
+          }
+          parent = parent.parentElement;
+        }
+      }
+      return null;
     },
     findDeepThinkingToggle() {
       return A.dom.findByText(TOOLBAR_SELECTORS, ['深度思考']) ||

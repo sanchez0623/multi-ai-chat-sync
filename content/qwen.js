@@ -28,10 +28,13 @@
     'div[role="button"][aria-label*="发送"]',
     'div[role="button"][aria-label*="Send"]',
     'button[type="submit"]',
-    'button[class*="submit"]'
+    'button[class*="submit"]',
+    'div[class*="input"] button:last-child',
+    'div[class*="footer"] button:last-child',
+    'div[class*="bottom"] button:last-child'
   ];
 
-  const SEND_TEXTS = ['发送', 'Send', '发送消息'];
+  const SEND_TEXTS = ['发送', 'Send', '发送消息', 'submit', 'send'];
 
   const TOOLBAR_SELECTORS = [
     'div[class*="input"]',
@@ -50,7 +53,21 @@
       return A.dom.first(INPUT_SELECTORS);
     },
     getSendBtn() {
-      return A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
+      // 1. 选择器 + 文本匹配
+      const btn = A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
+      if (btn && !A.dom.isDisabled(btn)) return btn;
+      // 2. 通过 SVG 图标引用定位（千问发送按钮为图标按钮：<use xlink:href="#qwpcicon-sendChat">）
+      const uses = document.querySelectorAll('use');
+      for (const use of uses) {
+        const href = use.getAttribute('xlink:href') ||
+                     use.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
+                     use.getAttribute('href') || '';
+        if (/send|发送/i.test(href)) {
+          const clickable = use.closest('button, div[role="button"], [type="submit"], div[class*="send"]');
+          if (clickable && !A.dom.isDisabled(clickable)) return clickable;
+        }
+      }
+      return null;
     },
     findDeepThinkingToggle() {
       return A.dom.findByText(TOOLBAR_SELECTORS, ['深度思考', '思考模式']) ||
