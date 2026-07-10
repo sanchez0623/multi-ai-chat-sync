@@ -54,23 +54,28 @@
       return A.dom.first(INPUT_SELECTORS);
     },
     getSendBtn() {
-      // 1. 选择器 + 文本匹配
-      const btn = A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
-      if (btn && !A.dom.isDisabled(btn)) return btn;
-      // 2. 通过发送图标定位（Kimi 发送按钮为 <svg class="iconify send-icon" name="Send">，取其可点击祖先）
-      const icon = document.querySelector('svg.send-icon, .send-icon, svg[name="Send"]');
-      if (icon) {
-        const clickable = icon.closest('button, a, div[role="button"], [type="submit"], div[class*="send"], div[class*="submit"]');
-        if (clickable && !A.dom.isDisabled(clickable)) return clickable;
-        let parent = icon.parentElement;
-        while (parent && parent !== document.body) {
-          if (parent.tagName === 'BUTTON' || parent.tagName === 'A' ||
-              parent.getAttribute('role') === 'button' ||
-              /send|submit/i.test(parent.className || '')) {
-            if (!A.dom.isDisabled(parent)) return parent;
-          }
-          parent = parent.parentElement;
+      // 1. 选择器 + 文本匹配（限定在输入区附近，避免命中侧边栏的同类元素）
+      const input = A.dom.first(INPUT_SELECTORS);
+      let scope = input;
+      if (scope) {
+        // 向上找到输入区/页脚容器，限定搜索范围
+        let p = scope;
+        for (let i = 0; i < 6 && p; i++) {
+          const cls = (typeof p.className === 'string' ? p.className : '');
+          if (/footer|input|editor|bottom|action/i.test(cls)) { scope = p; break; }
+          p = p.parentElement;
         }
+      }
+      const root = scope || document;
+      const btn = A.dom.findSendButtonIn(root, SEND_SELECTORS, SEND_TEXTS);
+      if (btn && !A.dom.isDisabled(btn)) return btn;
+      // 2. 在输入区附近查找发送图标（<svg class="iconify send-icon" name="Send">），点击其父容器
+      const icon = root.querySelector('svg.send-icon, .send-icon, svg[name="Send"]') ||
+                   document.querySelector('svg.send-icon, .send-icon, svg[name="Send"]');
+      if (icon) {
+        // 直接点击 svg 的父元素（Kimi 的发送按钮结构是 div > svg.send-icon）
+        const parent = icon.parentElement;
+        if (parent && !A.dom.isDisabled(parent)) return parent;
       }
       return null;
     },

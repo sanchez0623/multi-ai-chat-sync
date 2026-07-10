@@ -49,21 +49,34 @@
 
   A.runPlatform({
     key: 'qwen',
+    // 千问 SPA 对合成 Enter 事件敏感，禁用回车兜底避免崩页
+    noEnterFallback: true,
     getInputEl() {
       return A.dom.first(INPUT_SELECTORS);
     },
     getSendBtn() {
-      // 1. 选择器 + 文本匹配
-      const btn = A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
+      // 1. 选择器 + 文本匹配（限定在输入区附近，避免命中页头/侧边栏）
+      const input = A.dom.first(INPUT_SELECTORS);
+      let scope = input;
+      if (scope) {
+        let p = scope;
+        for (let i = 0; i < 6 && p; i++) {
+          const cls = (typeof p.className === 'string' ? p.className : '');
+          if (/footer|input|editor|bottom|operate|action/i.test(cls)) { scope = p; break; }
+          p = p.parentElement;
+        }
+      }
+      const root = scope || document;
+      const btn = A.dom.findSendButtonIn(root, SEND_SELECTORS, SEND_TEXTS);
       if (btn && !A.dom.isDisabled(btn)) return btn;
-      // 2. 通过 SVG 图标引用定位（千问发送按钮为图标按钮：<use xlink:href="#qwpcicon-sendChat">）
-      const uses = document.querySelectorAll('use');
+      // 2. 通过 SVG 图标引用定位（千问发送按钮：<use xlink:href="#qwpcicon-sendChat">）
+      const uses = root.querySelectorAll('use');
       for (const use of uses) {
         const href = use.getAttribute('xlink:href') ||
                      use.getAttributeNS('http://www.w3.org/1999/xlink', 'href') ||
                      use.getAttribute('href') || '';
         if (/send|发送/i.test(href)) {
-          const clickable = use.closest('button, div[role="button"], [type="submit"], div[class*="send"]');
+          const clickable = use.closest('button, a, div[role="button"], [type="submit"], div[class*="send"]') || use.parentElement;
           if (clickable && !A.dom.isDisabled(clickable)) return clickable;
         }
       }
