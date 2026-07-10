@@ -15,7 +15,7 @@ const MATCH_PATTERNS = {
   yuanbao: ['https://yuanbao.tencent.com/*'],
   doubao:  ['https://www.doubao.com/*'],
   qwen:    ['https://www.qianwen.com/*'],
-  kimi:    ['https://kimi.moonshot.cn/*', 'https://kimi.com/*'],
+  kimi:    ['https://www.kimi.com/*'],
   zhipu:   ['https://chatglm.cn/*', 'https://chat.zhipu.ai/*']
 };
 
@@ -24,7 +24,7 @@ const HOME_URLS = {
   yuanbao: 'https://yuanbao.tencent.com/',
   doubao:  'https://www.doubao.com/',
   qwen:    'https://www.qianwen.com/',
-  kimi:    'https://kimi.moonshot.cn/',
+  kimi:    'https://www.kimi.com/',
   zhipu:   'https://chatglm.cn/'
 };
 
@@ -83,21 +83,21 @@ async function getAllFrames(tabId) {
   }
 }
 
-/** 探测内容脚本是否就绪，最多重试若干次；遍历所有 frame */
+/** 探测内容脚本是否就绪，最多重试若干次；遍历所有 frame，返回就绪的 frameId */
 async function pingTab(tabId, retries = 10) {
   for (let i = 0; i < retries; i++) {
     const frameIds = await getAllFrames(tabId);
     for (const frameId of frameIds) {
       try {
         const resp = await chrome.tabs.sendMessage(tabId, { type: 'PING' }, { frameId });
-        if (resp && resp.ok) return true;
+        if (resp && resp.ok) return frameId;
       } catch (e) {
         // Receiving end does not exist in this frame yet
       }
     }
     await sleep(400);
   }
-  return false;
+  return null;
 }
 
 /** 编程式注入内容脚本（兜底：标签页在扩展安装/更新前已打开时 manifest 不会补注入） */
@@ -135,37 +135,28 @@ async function sendToPlatform(platformKey, question, deepThinking, settings) {
     await waitTabComplete(tab.id);
   }
 
-  let ready = await pingTab(tab.id);
-  if (!ready) {
+  let readyFrameId = await pingTab(tab.id);
+  if (readyFrameId === null) {
     // 内容脚本可能未注入（标签页在扩展安装/更新前已打开），尝试编程式注入后重试
     const injected = await injectContentScripts(tab.id, platformKey);
     if (injected) {
       await sleep(300);
-      ready = await pingTab(tab.id);
+      readyFrameId = await pingTab(tab.id);
     }
   }
-  if (!ready) {
+  if (readyFrameId === null) {
     return { platform: platformKey, ok: false, error: '内容脚本未就绪（可能未登录或页面异常）' };
   }
 
-  // 找到就绪的 frame，向其发送 SUBMIT_QUESTION
-  const frameIds = await getAllFrames(tab.id);
-  for (const frameId of frameIds) {
-    try {
-      const resp = await chrome.tabs.sendMessage(tab.id, {
-        type: 'SUBMIT_QUESTION', question, deepThinking
-      }, { frameId });
-      if (resp && resp.ok) {
-        return { platform: platformKey, ok: true };
-      }
-      if (resp && resp.platform === platformKey) {
-        return { platform: platformKey, ok: !!(resp && resp.ok), error: resp && resp.error };
-      }
-    } catch (e) {
-      // 该 frame 无接收端或无响应，继续尝试下一个
-    }
+  // 向就绪的 frame 发送 SUBMIT_QUESTION
+  try {
+    const resp = await chrome.tabs.sendMessage(tab.id, {
+      type: 'SUBMIT_QUESTION', question, deepThinking
+    }, { frameId: readyFrameId });
+    return { platform: platformKey, ok: !!(resp && resp.ok), error: resp && resp.error };
+  } catch (e) {
+    return { platform: platformKey, ok: false, error: String(e && e.message) };
   }
-  return { platform: platformKey, ok: false, error: '未找到目标平台 frame' };
 }
 
 /**
