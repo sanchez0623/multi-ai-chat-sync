@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 多模型同步提问</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="title">
+      <span class="logo">⇄</span>
+      <span>AI 多模型同步提问</span>
+    </div>
+    <button id="openOptions" class="icon-btn" title="设置">⚙</button>
+  </header>
+
+  <main class="content">
+    <!-- 同步目标模型（多选） -->
+    <section class="section">
+      <div class="section-head">
+        <span class="section-title">同步目标模型</span>
+        <span class="hint">多选 · 在任意一方提问会同步到已选模型</span>
+      </div>
+      <ul id="platformList" class="platform-list"></ul>
+    </section>
+
+    <!-- 全局开关 -->
+    <section class="section">
+      <label class="switch-row">
+        <span class="switch-text">
+          <span class="switch-label">自动同步</span>
+          <span class="switch-sub">在任一平台提问时自动同步到其它已选平台</span>
+        </span>
+        <input type="checkbox" id="autoSync" class="switch" />
+      </label>
+      <label class="switch-row">
+        <span class="switch-text">
+          <span class="switch-label">无标签时自动打开</span>
+          <span class="switch-sub">目标平台没有已打开标签时，自动新建后台标签</span>
+        </span>
+        <input type="checkbox" id="openNewTab" class="switch" />
+      </label>
+    </section>
+
+    <!-- 手动广播 -->
+    <section class="section">
+      <div class="section-head">
+        <span class="section-title">手动广播提问</span>
+        <span class="hint">向所有已选模型同时发送</span>
+      </div>
+      <textarea id="question" rows="3" placeholder="输入要同时问所有已选模型的问题…"></textarea>
+      <button id="broadcast" class="primary-btn" disabled>向已选模型广播提问</button>
+    </section>
+
+    <!-- 结果 -->
+    <section id="resultSection" class="section hidden">
+      <div class="section-title">结果</div>
+      <ul id="resultList" class="result-list"></ul>
+    </section>
+  </main>
+
+  <footer class="foot">提示：深度思考按各平台开关独立控制</footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 多模型同步提问 - 设置</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>AI 多模型同步提问 · 设置</h1>
+      <p class="sub">在元宝 / 豆包 / 千问 / Kimi / 智谱 之间同步同一个问题，支持多选模型与各平台独立的深度思考开关。</p>
+    </header>
+
+    <section class="card">
+      <h2>同步目标模型</h2>
+      <p class="desc">勾选后会作为同步目标。在任一已勾选平台提问，会自动同步到其它已勾选平台。</p>
+      <table class="ptable">
+        <thead>
+          <tr><th>启用</th><th>平台</th><th>深度思考</th><th>打开</th></tr>
+        </thead>
+        <tbody id="platformBody"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>行为</h2>
+      <label class="switch-row">
+        <span class="switch-text">
+          <span class="switch-label">自动同步</span>
+          <span class="switch-sub">在任一平台提问时，自动把问题转发到其它已选平台</span>
+        </span>
+        <input type="checkbox" id="autoSync" class="switch" />
+      </label>
+      <label class="switch-row">
+        <span class="switch-text">
+          <span class="switch-label">无标签时自动打开</span>
+          <span class="switch-sub">目标平台没有已打开标签时，自动新建后台标签并发送</span>
+        </span>
+        <input type="checkbox" id="openNewTab" class="switch" />
+      </label>
+    </section>
+
+    <section class="card note">
+      <h2>使用说明</h2>
+      <ul>
+        <li>请先在浏览器中登录各平台账号。</li>
+        <li>"深度思考"按各平台开关独立控制：开启后转发到该平台时会尝试点击其"深度思考"按钮。</li>
+        <li>各平台前端改版可能导致选择器失效，如某个平台无法自动填入/发送，可在 <code>content/&lt;platform&gt;.js</code> 顶部更新候选选择器。</li>
+        <li>弹窗中也提供了"手动广播提问"，可一次性把同一问题发给所有已选模型。</li>
+      </ul>
+    </section>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
