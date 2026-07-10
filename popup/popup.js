@@ -8,7 +8,7 @@
 const PLATFORMS = [
   { key: 'yuanbao', name: '元宝',       host: 'yuanbao.tencent.com' },
   { key: 'doubao',  name: '豆包',       host: 'www.doubao.com' },
-  { key: 'qwen',    name: '通义千问',   host: 'tongyi.aliyun.com' },
+  { key: 'qwen',    name: '通义千问',   host: 'www.qianwen.com' },
   { key: 'kimi',    name: 'Kimi',       host: 'kimi.moonshot.cn' },
   { key: 'zhipu',   name: '智谱清言',   host: 'chatglm.cn' }
 ];
