@@ -16,6 +16,7 @@
   ];
 
   const SEND_SELECTORS = [
+    '#yuanbao-send-btn',
     '#chat-input button[class*="send"]',
     'button[class*="send"]',
     'button[aria-label*="发送"]',
