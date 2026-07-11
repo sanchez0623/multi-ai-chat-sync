@@ -38,6 +38,20 @@
   ];
   const THINK_TEXTS = ['深度思考', '深度搜索', '思考', 'Deep Thinking'];
 
+  // 助手回答容器候选（取最后一条）
+  const ANSWER_SELECTORS = [
+    '#chat-area div[class*="answer"]',
+    '#chat-area div[class*="receive"]',
+    '#chat-area div[class*="assistant"]',
+    '#chat-area div[class*="agent"]',
+    'div[class*="conversation"] div[class*="answer"]',
+    'div[class*="message-list"] div[class*="answer"]',
+    'div[class*="chat-list"] div[class*="receive"]',
+    'div[class*="agent-text"]',
+    'div[class*="answer-text"]',
+    'div[class*="markdown-body"]:last-of-type'
+  ];
+
   A.runPlatform({
     key: 'yuanbao',
     getInputEl() {
@@ -49,6 +63,9 @@
     findDeepThinkingToggle() {
       return A.dom.findByText(TOOLBAR_SELECTORS, ['深度思考', '深度搜索']) ||
              A.dom.findByText(TOOLBAR_SELECTORS, THINK_TEXTS);
+    },
+    getAnswerText() {
+      return A.dom.lastAnswerText(ANSWER_SELECTORS);
     }
   });
 })();

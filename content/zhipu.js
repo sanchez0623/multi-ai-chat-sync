@@ -66,6 +66,16 @@
     findDeepThinkingToggle() {
       return A.dom.findByText(TOOLBAR_SELECTORS, ['深度思考', '深度搜索']) ||
              A.dom.findByText(TOOLBAR_SELECTORS, THINK_TEXTS);
+    },
+    getAnswerText() {
+      return A.dom.lastAnswerText([
+        'div[class*="conversation"] div[class*="answer"]',
+        'div[class*="message-list"] div[class*="assistant"]',
+        'div[class*="chat-content"] div[class*="answer"]',
+        'div[class*="receive-message"]',
+        'div[class*="answer-content"]',
+        'div[class*="markdown-body"]:last-of-type'
+      ]);
     }
   });
 })();
