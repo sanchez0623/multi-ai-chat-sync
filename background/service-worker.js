@@ -116,6 +116,7 @@ async function injectContentScripts(tabId, platformKey) {
 
 /** 向单个平台转发问题 */
 async function sendToPlatform(platformKey, question, deepThinking, settings, sessionId) {
+  console.log('[AISync] sendToPlatform:', platformKey, 'dt=', deepThinking, 'q=', (question || '').slice(0, 40));
   const patterns = MATCH_PATTERNS[platformKey];
   if (!patterns) return { platform: platformKey, ok: false, error: '未知平台' };
 
@@ -145,6 +146,7 @@ async function sendToPlatform(platformKey, question, deepThinking, settings, ses
     }
   }
   if (readyFrameId === null) {
+    console.warn('[AISync] sendToPlatform: content script not ready for', platformKey);
     return { platform: platformKey, ok: false, error: '内容脚本未就绪（可能未登录或页面异常）' };
   }
 
@@ -153,8 +155,10 @@ async function sendToPlatform(platformKey, question, deepThinking, settings, ses
     const resp = await chrome.tabs.sendMessage(tab.id, {
       type: 'SUBMIT_QUESTION', question, deepThinking, sessionId
     }, { frameId: readyFrameId });
+    console.log('[AISync] sendToPlatform done:', platformKey, 'resp=', resp);
     return { platform: platformKey, ok: !!(resp && resp.ok), error: resp && resp.error };
   } catch (e) {
+    console.warn('[AISync] sendToPlatform sendMessage failed:', platformKey, e && e.message);
     return { platform: platformKey, ok: false, error: String(e && e.message) };
   }
 }

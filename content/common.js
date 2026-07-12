@@ -469,14 +469,32 @@
       const INTERVAL = 2000;
       const MAX_WAIT = 120000;        // 最长收集 2 分钟
       const STABLE_ROUNDS = 2;        // 连续 2 轮（4s）无变化视为稳定
+      const EMPTY_THRESHOLD = 6;      // 连续 6 轮（12s）没新文本，认为平台没回答
       const start = Date.now();
       let lastText = '';
       let stableCount = 0;
+      let emptyCount = 0;
+      let firstTickDone = false;
 
       const tick = () => {
+        // ========== 首次 tick：刷新一次 exclude ==========
+        // 修元宝/豆包这类 SPA 的"提交时旧气泡还在 transition、新气泡尚未渲染"
+        // 场景：applyDeepThinking 点击工具栏可能扰动 DOM，导致初始 exclude 抓不全，
+        // 几百毫秒后旧回答才"晚到"进入 chat 列表 —— 不刷新就会被当作新回答上报。
+        if (!firstTickDone) {
+          try {
+            const list = dom.listAnswerTexts(config.answerSelectors || [], question);
+            for (const t of list) exclude.add(t);
+            A.log('collectAnswer: refreshed exclude on first tick, size=', exclude.size);
+          } catch (e) { /* ignore */ }
+          firstTickDone = true;
+        }
+
         let text = '';
+        let listLen = 0;
         try {
           const list = dom.listAnswerTexts(config.answerSelectors || [], question);
+          listLen = list.length;
           // 只保留发送快照之后新出现的文本
           const fresh = list.filter((t) => !exclude.has(t));
           if (fresh.length) {
@@ -485,17 +503,33 @@
             text = fresh[0];
           }
         } catch (e) { text = ''; }
+        A.log('collectAnswer tick', config.key, sessionId,
+              'list=', listLen,
+              'fresh=', (text ? 1 : 0),
+              'textLen=', text.length, 'lastTextLen=', lastText.length);
 
         if (text && text !== lastText) {
           stableCount = 0;
+          emptyCount = 0;
           lastText = text;
           A.sendToBackground({ type: MSG.ANSWER_UPDATE, sessionId, platform: config.key, status: 'sending', answer: text });
         } else if (text && text === lastText) {
           stableCount++;
+          emptyCount = 0;
           if (stableCount >= STABLE_ROUNDS) {
             A.sendToBackground({ type: MSG.ANSWER_UPDATE, sessionId, platform: config.key, status: 'done', answer: text });
             collecting.delete(sessionId);
             A.log('collectAnswer done', config.key, sessionId, text.slice(0, 60));
+            return;
+          }
+        } else if (!text) {
+          // 没新文本：可能平台没回答（敏感词、拒答、错误页等）
+          emptyCount++;
+          stableCount = 0;
+          if (emptyCount >= EMPTY_THRESHOLD) {
+            A.sendToBackground({ type: MSG.ANSWER_UPDATE, sessionId, platform: config.key, status: 'done', answer: '' });
+            collecting.delete(sessionId);
+            A.log('collectAnswer no answer after', EMPTY_THRESHOLD, 'ticks, marking done', config.key, sessionId);
             return;
           }
         }
@@ -516,6 +550,7 @@
     }
 
     onBackgroundMessage((msg) => {
+      A.log('onBackgroundMessage:', config.key, msg && msg.type, msg && (msg.question || '').slice && (msg.question || '').slice(0, 30));
       if (msg.type === MSG.PING) return { ok: true, platform: config.key, ready: !!config.getInputEl() };
       if (msg.type === MSG.SUBMIT_QUESTION) {
         return (async () => {
