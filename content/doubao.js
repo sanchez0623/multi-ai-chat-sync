@@ -25,11 +25,13 @@
   const SEND_TEXTS = ['发送', 'Send'];
 
   // 豆包模式选择器（Radix UI dropdown-menu）
-  // 触发器：<button data-slot="dropdown-menu-trigger" aria-haspopup="menu">
-  //         内部 <div data-valid-btn="mode-select-action-btn">，显示当前模式名（如"快速"）
+  // 触发器外层：<div data-valid-btn="mode-select-action-btn">（稳定属性）
+  //   内层 <button data-checked="true|false">：
+  //     - "专家"激活时 data-checked="true"，按钮文字显示"专家"，图标 active_mode_pro.png
+  //     - 非深度模式（如"快速"）时无 data-checked 或 data-checked="false"
   const MODE_TRIGGER_SELECTORS = [
-    '[data-slot="dropdown-menu-trigger"]',
     '[data-valid-btn="mode-select-action-btn"]',
+    '[data-slot="dropdown-menu-trigger"]',
     'div[class*="mode-select"]',
     'div[class*="model-select"]',
     'div[role="combobox"]'
@@ -57,14 +59,13 @@
     getSendBtn() {
       return A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
     },
-    // 豆包深度思考：点击模式 dropdown trigger -> 在 radix menu 中选"专家"
+    // 豆包深度思考：通过 data-checked 判断当前态，未激活则点开 dropdown 选"专家"
     async applyDeepThinking(enabled) {
       if (!enabled) return true;
 
-      // 1. 查找模式触发器
-      let trigger = A.dom.first(MODE_TRIGGER_SELECTORS);
-      if (!trigger) {
-        // 兜底：在输入区附近找含模式文本的可点击元素
+      // 1. 查找模式触发器外层（div[data-valid-btn]）或兜底
+      let wrap = A.dom.first(MODE_TRIGGER_SELECTORS);
+      if (!wrap) {
         const containers = [
           'div[class*="input-area"]', 'div[class*="footer"]',
           'div[class*="toolbar"]', 'div[class*="chat-input"]'
@@ -76,23 +77,32 @@
           for (const n of nodes) {
             const txt = (n.textContent || '').trim();
             if (txt && MODE_TRIGGER_TEXTS.some((t) => txt.includes(t)) && txt.length < 20) {
-              trigger = n; break;
+              wrap = n; break;
             }
           }
-          if (trigger) break;
+          if (wrap) break;
         }
       }
-      if (!trigger) { A.warn('doubao: mode trigger not found'); return false; }
+      if (!wrap) { A.warn('doubao: mode trigger not found'); return false; }
 
-      // 2. 当前已是目标深度模式则跳过
-      const currentText = (trigger.textContent || '').trim();
+      // 触发器是 wrap 内的 button（带 data-checked），点击它打开下拉
+      const triggerBtn = wrap.querySelector('button[data-checked], button[data-dbx-name="button"]') || wrap;
+
+      // 2. 用 data-checked 精准判断当前是否已激活深度模式
+      const checked = triggerBtn.getAttribute('data-checked');
+      if (checked === 'true') {
+        A.log('doubao: already deep mode (data-checked=true)');
+        return true;
+      }
+      // 兜底：按文字判断
+      const currentText = (wrap.textContent || '').trim();
       if (DEEP_MODE_NAMES.some((t) => currentText.includes(t))) {
-        A.log('doubao: already deep mode', currentText);
+        A.log('doubao: already deep mode by text', currentText);
         return true;
       }
 
       // 3. 点击打开 radix dropdown 菜单
-      A.dom.click(trigger);
+      A.dom.click(triggerBtn);
 
       // 4. 等待菜单项渲染（radix 菜单 portal 到 body，选项为 [role="menuitem"]）
       const menu = await A.dom.waitFor(
@@ -101,7 +111,6 @@
       );
       if (!menu) {
         A.warn('doubao: dropdown menu not rendered');
-        // 点别处关闭
         document.body.click();
         return false;
       }
@@ -119,7 +128,6 @@
         }
       }
       A.warn('doubao: deep mode option not found in menu, items=', items.length);
-      // 关闭菜单
       document.body.click();
       return false;
     },
