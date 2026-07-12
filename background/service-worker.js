@@ -60,6 +60,10 @@ async function getSettings() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// 与 content/common.js 中 CONTENT_VERSION 保持一致
+// 不一致时 PING 会带上 pageVersion 字段回来，提示用户需要刷新扩展或重新打开标签页
+const EXPECTED_CONTENT_VERSION = '1.1.10';
+
 /** 等待 Tab 加载完成 */
 async function waitTabComplete(tabId, timeout = 15000) {
   const start = Date.now();
@@ -100,6 +104,26 @@ async function pingTab(tabId, retries = 10) {
   return null;
 }
 
+/** 带诊断信息的 PING：返回 pageVersion / ready / href，方便排查 "老 content script 卡在页面里" 的情况 */
+async function pingTabVerbose(tabId) {
+  let lastErr = null;
+  for (let i = 0; i < 10; i++) {
+    const frameIds = await getAllFrames(tabId);
+    for (const frameId of frameIds) {
+      try {
+        const resp = await chrome.tabs.sendMessage(tabId, { type: 'PING' }, { frameId });
+        if (resp && resp.ok) {
+          return { ok: true, frameId, resp };
+        }
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    await sleep(400);
+  }
+  return { ok: false, error: lastErr && lastErr.message };
+}
+
 /** 编程式注入内容脚本（兜底：标签页在扩展安装/更新前已打开时 manifest 不会补注入） */
 async function injectContentScripts(tabId, platformKey) {
   const files = CONTENT_SCRIPTS[platformKey];
@@ -136,19 +160,52 @@ async function sendToPlatform(platformKey, question, deepThinking, settings, ses
     await waitTabComplete(tab.id);
   }
 
-  let readyFrameId = await pingTab(tab.id);
+  // 先用 verbose 探一次，能拿到 version / href 等诊断信息
+  let probe = await pingTabVerbose(tab.id);
+  let readyFrameId = probe.ok ? probe.frameId : null;
+  let pageVersion = probe.ok ? probe.resp.version : null;
+  let pageHref = probe.ok ? probe.resp.href : null;
+  let pageReady = probe.ok ? probe.resp.ready : null;
+
   if (readyFrameId === null) {
     // 内容脚本可能未注入（标签页在扩展安装/更新前已打开），尝试编程式注入后重试
     const injected = await injectContentScripts(tab.id, platformKey);
     if (injected) {
-      await sleep(300);
-      readyFrameId = await pingTab(tab.id);
+      await sleep(500);
+      probe = await pingTabVerbose(tab.id);
+      readyFrameId = probe.ok ? probe.frameId : null;
+      if (probe.ok) {
+        pageVersion = probe.resp.version;
+        pageHref = probe.resp.href;
+        pageReady = probe.resp.ready;
+      }
     }
   }
   if (readyFrameId === null) {
-    console.warn('[AISync] sendToPlatform: content script not ready for', platformKey);
+    console.warn('[AISync] sendToPlatform: content script not ready for', platformKey,
+      'lastErr=', probe.error, 'tabId=', tab.id, 'tabUrl=', tab && tab.url);
     return { platform: platformKey, ok: false, error: '内容脚本未就绪（可能未登录或页面异常）' };
   }
+
+  // 检测到老 content script：返回了 ok 但 version 不匹配。这种情况下 SUBMIT_QUESTION
+  // 协议可能不兼容，最稳的做法是主动重注一次。
+  if (pageVersion && pageVersion !== EXPECTED_CONTENT_VERSION) {
+    console.warn('[AISync] sendToPlatform: stale content script for', platformKey,
+      'expected=', EXPECTED_CONTENT_VERSION, 'got=', pageVersion, 're-injecting...');
+    const injected = await injectContentScripts(tab.id, platformKey);
+    if (injected) {
+      await sleep(500);
+      probe = await pingTabVerbose(tab.id);
+      if (probe.ok) {
+        readyFrameId = probe.frameId;
+        pageVersion = probe.resp.version;
+        pageHref = probe.resp.href;
+        pageReady = probe.resp.ready;
+      }
+    }
+  }
+  console.log('[AISync] sendToPlatform: PING ok for', platformKey,
+    'frameId=', readyFrameId, 'version=', pageVersion, 'ready=', pageReady, 'href=', pageHref);
 
   // 向就绪的 frame 发送 SUBMIT_QUESTION（带 sessionId 以便内容脚本回传回答）
   try {

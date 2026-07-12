@@ -12,6 +12,9 @@
 
   if (globalThis.AISYNC && globalThis.AISYNC.__loaded) return;
 
+  // 顶层 try-catch：content script 早期任何抛错都不能让 PING 静默不响应
+  try {
+
   const PLATFORMS = {
     yuanbao: { key: 'yuanbao', name: '元宝', host: 'yuanbao.tencent.com' },
     doubao:  { key: 'doubao',  name: '豆包', host: 'www.doubao.com' },
@@ -35,6 +38,10 @@
     autoSync: true,
     openNewTab: true
   };
+
+  // 当前 content script 版本号：扩展升级时，background 比对 PING 响应里的 version
+  // 字段判断页面上的 content script 是否需要被强制重新注入。
+  const CONTENT_VERSION = '1.1.10';
 
   const DEBUG = true;
   const TAG = '[AISync]';
@@ -551,7 +558,18 @@
 
     onBackgroundMessage((msg) => {
       A.log('onBackgroundMessage:', config.key, msg && msg.type, msg && (msg.question || '').slice && (msg.question || '').slice(0, 30));
-      if (msg.type === MSG.PING) return { ok: true, platform: config.key, ready: !!config.getInputEl() };
+      if (msg.type === MSG.PING) {
+        // 返回版本号 + 平台 + 输入框就绪态，方便 background 识别"老 content script 仍在跑"的情况
+        let inputReady = false;
+        try { inputReady = !!config.getInputEl(); } catch (e) { inputReady = false; }
+        return {
+          ok: true,
+          platform: config.key,
+          ready: inputReady,
+          version: CONTENT_VERSION,
+          href: location.href
+        };
+      }
       if (msg.type === MSG.SUBMIT_QUESTION) {
         return (async () => {
           const r = await submitQuestion(msg.question, !!msg.deepThinking);
@@ -592,4 +610,11 @@
   };
 
   log('common loaded');
+  } catch (e) {
+    // 顶层错误：保证 AISYNC 至少被标记为已加载（部分注册），同时打印堆栈
+    console.error(TAG, 'common.js init failed:', e && e.stack || e);
+    try {
+      if (!globalThis.AISYNC) globalThis.AISYNC = { __loaded: true, __error: String(e && e.stack || e) };
+    } catch (_) {}
+  }
 })();

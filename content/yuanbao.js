@@ -8,8 +8,9 @@
  */
 (function () {
   'use strict';
+  // 用原生 console.log/warn 而非 A.log，方便判断 "AISYNC 还没加载" 这类极端情况
+  console.log('[AISync] yuanbao: script entered');
   const A = globalThis.AISYNC;
-  // 用原生 console.log 而非 A.log，方便判断 "AISYNC 还没加载" 这类极端情况
   if (!A) {
     console.warn('[AISync] yuanbao: AISYNC namespace not found, aborting');
     return;
@@ -160,6 +161,7 @@
     el.click();
   }
 
+  try {
   A.runPlatform({
     key: 'yuanbao',
     answerSelectors: ANSWER_SELECTORS,
@@ -314,4 +316,8 @@
       return A.dom.lastAnswerText(ANSWER_SELECTORS);
     }
   });
+  A.log('yuanbao: runPlatform registered');
+  } catch (e) {
+    console.error('[AISync] yuanbao: runPlatform failed:', e && e.stack || e);
+  }
 })();
