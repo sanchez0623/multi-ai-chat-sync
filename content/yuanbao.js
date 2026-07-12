@@ -54,6 +54,7 @@
 
   A.runPlatform({
     key: 'yuanbao',
+    answerSelectors: ANSWER_SELECTORS,
     getInputEl() {
       return A.dom.first(INPUT_SELECTORS);
     },

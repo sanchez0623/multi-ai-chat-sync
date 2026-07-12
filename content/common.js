@@ -216,59 +216,67 @@
     },
 
     /**
-     * 抽取最近一条助手回答文本：
-     * 依次尝试 selectors，收集所有匹配元素，返回其中文本最长者的纯文本
-     * （排除输入框/按钮/代码块执行控件）。
-     * 取最长而非最后一个：避免后续兜底选择器命中空模板覆盖真实回答。
+     * 收集页面上所有候选回答文本（平台选择器 + 通用兜底），返回数组。
+     * 用于：
+     *  - 提交前快照已有回答（旧轮次），提交后只接受快照外的新文本，避免把旧回答当成新回答
+     *  - 取最长者作为当前回答
      */
-    lastAnswerText(selectors) {
-      if (!selectors || !selectors.length) return '';
-      const candidates = [];
-      for (const s of selectors) {
-        try {
-          document.querySelectorAll(s).forEach((e) => candidates.push(e));
-        } catch (e) { /* bad selector */ }
-      }
-      let best = '';
-      for (const el of candidates) {
-        const clone = el.cloneNode(true);
-        clone.querySelectorAll('textarea, input, button, [contenteditable="true"], [class*="action"], [class*="toolbar"]').forEach((n) => n.remove());
-        const txt = (clone.innerText || clone.textContent || '').trim();
-        if (txt.length > best.length) best = txt;
-      }
-      return best;
-    },
-
-    /**
-     * 通用回答抽取兜底：用宽泛选择器收集候选，排除用户提问回显与输入区，
-     * 返回最长文本。当平台专用 getAnswerText 未命中时使用。
-     */
-    answerTextGeneric(question) {
+    listAnswerTexts(selectors, question) {
       const q = (question || '').trim();
       const qSig = q.slice(0, 40);
-      const selectors = [
+      const out = [];
+      const seen = new Set();
+      const push = (txt) => {
+        if (!txt || txt.length < 20) return;
+        // 排除与提问高度重合的短容器（用户消息回显）
+        if (qSig && txt.includes(qSig) && txt.length < q.length + 50) return;
+        if (seen.has(txt)) return;
+        seen.add(txt);
+        out.push(txt);
+      };
+      const extract = (el) => {
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('textarea, input, button, [contenteditable="true"], [class*="action"], [class*="toolbar"], svg, img').forEach((n) => n.remove());
+        return (clone.innerText || clone.textContent || '').trim();
+      };
+      // 平台专用选择器
+      if (selectors && selectors.length) {
+        for (const s of selectors) {
+          try { document.querySelectorAll(s).forEach((el) => push(extract(el))); } catch (e) {}
+        }
+      }
+      // 通用兜底选择器
+      const generic = [
         '[class*="answer"]', '[class*="reply"]', '[class*="receive"]',
         '[class*="assistant"]', '[class*="agent"]', '[class*="markdown"]',
         '[class*="bubble"]', '[class*="segment"]', '[class*="message-item"]',
         '[class*="msg-item"]', '[class*="chat-item"]', '[class*="detail"]'
       ];
-      const candidates = [];
-      for (const s of selectors) {
-        try { document.querySelectorAll(s).forEach((e) => candidates.push(e)); } catch (e) {}
+      for (const s of generic) {
+        try {
+          document.querySelectorAll(s).forEach((el) => {
+            // 跳过输入区/工具栏/导航内的元素
+            if (el.closest('textarea, input, [contenteditable="true"], [class*="input-area"], [class*="editor"], [class*="toolbar"], nav, header')) return;
+            push(extract(el));
+          });
+        } catch (e) {}
       }
-      let best = '';
-      for (const el of candidates) {
-        // 跳过输入区/工具栏/导航内的元素
-        if (el.closest('textarea, input, [contenteditable="true"], [class*="input-area"], [class*="editor"], [class*="toolbar"], nav, header')) continue;
-        const clone = el.cloneNode(true);
-        clone.querySelectorAll('textarea, input, button, [contenteditable="true"], [class*="action"], [class*="toolbar"], svg, img').forEach((n) => n.remove());
-        const txt = (clone.innerText || clone.textContent || '').trim();
-        if (txt.length < 20) continue;
-        // 排除与提问高度重合的短容器（用户消息回显）
-        if (qSig && txt.includes(qSig) && txt.length < q.length + 50) continue;
-        if (txt.length > best.length) best = txt;
-      }
-      return best;
+      return out;
+    },
+
+    /**
+     * 抽取最近一条助手回答文本：返回所有候选中文本最长者。
+     * （保留供各平台 getAnswerText 使用；多轮差异比对请用 listAnswerTexts）
+     */
+    lastAnswerText(selectors, question) {
+      const list = dom.listAnswerTexts(selectors, question);
+      if (!list.length) return '';
+      return list.reduce((a, b) => (b.length > a.length ? b : a), '');
+    },
+
+    /** 通用回答抽取兜底：取最长文本。 */
+    answerTextGeneric(question) {
+      return dom.lastAnswerText([], question);
     },
 
     /** 真实点击 */
@@ -345,12 +353,15 @@
       if (!settings || !settings.autoSync) return;
       const q = readQuestion();
       if (!q) return;
-      A.log('broadcast question from', config.key, q.slice(0, 60));
+      // 在平台真正发送前，快照当前页面上已有的回答文本（旧轮次），
+      // collectAnswer 只接受快照外的新文本，避免把旧回答当成本轮回答
+      const excludeTexts = new Set(dom.listAnswerTexts(config.answerSelectors || [], q));
+      A.log('broadcast question from', config.key, q.slice(0, 60), 'exclude=', excludeTexts.size);
       // 不阻塞点击事件：异步获取 sessionId 后开始收集本平台回答
       A.sendToBackground({ type: MSG.QUESTION_SUBMITTED, source: config.key, question: q })
         .then((resp) => {
           if (resp && resp.ok && resp.sessionId) {
-            collectAnswer(resp.sessionId, q);
+            collectAnswer(resp.sessionId, q, excludeTexts);
           }
         });
     };
@@ -399,6 +410,8 @@
     }
 
     // 转发提问：填入文本 -> (可选)开启深度思考 -> 点击发送（或回车兜底）
+    // 返回 { ok, error?, _excludeTexts }：_excludeTexts 为发送前已有回答文本快照，
+    // 供 collectAnswer 排除旧轮次回答
     async function submitQuestion(question, deepThinking) {
       A.forwarding = true;
       try {
@@ -408,12 +421,15 @@
         await new Promise((r) => setTimeout(r, 300));
         if (deepThinking) await applyDeepThinking(true);
 
+        // 发送前快照当前页面上已有的回答文本（旧轮次），collectAnswer 只接受快照外的新文本
+        const excludeTexts = new Set(dom.listAnswerTexts(config.answerSelectors || [], question));
+
         // 优先点击发送按钮
         const btn = await dom.waitFor(config.getSendBtn, { timeout: 6000 });
         if (btn) {
           dom.click(btn);
           A.log('forwarded question to', config.key, 'via button');
-          return { ok: true };
+          return { ok: true, _excludeTexts: excludeTexts };
         }
 
         // 兜底：回车提交（部分平台对合成 Enter 敏感，可通过 noEnterFallback 禁用）
@@ -424,7 +440,7 @@
         warn('send button not found, fallback to Enter', config.key);
         submitByEnter(input);
         A.log('forwarded question to', config.key, 'via Enter');
-        return { ok: true };
+        return { ok: true, _excludeTexts: excludeTexts };
       } catch (e) {
         warn('submitQuestion error', config.key, e);
         return { ok: false, error: String(e) };
@@ -434,13 +450,14 @@
       }
     }
 
-    // 收集本平台回答：轮询 config.getAnswerText，文本稳定后上报 done
-    // 同一 sessionId 仅启动一次收集
+    // 收集本平台回答：轮询抽取，过滤掉 excludeTexts（旧轮次），取最长新文本；
+    // 文本稳定后上报 done。同一 sessionId 仅启动一次收集
     const collecting = new Set();
-    function collectAnswer(sessionId, question) {
+    function collectAnswer(sessionId, question, excludeTexts) {
       if (!sessionId || collecting.has(sessionId)) return;
       collecting.add(sessionId);
-      A.log('start collectAnswer', config.key, sessionId);
+      const exclude = excludeTexts || new Set();
+      A.log('start collectAnswer', config.key, sessionId, 'exclude=', exclude.size);
 
       const INTERVAL = 2000;
       const MAX_WAIT = 120000;        // 最长收集 2 分钟
@@ -452,9 +469,14 @@
       const tick = () => {
         let text = '';
         try {
-          text = (config.getAnswerText ? config.getAnswerText() : '').trim();
-          // 平台选择器未命中时，用通用兜底（宽泛选择器 + 排除提问回显）
-          if (!text) text = dom.answerTextGeneric(question).trim();
+          const list = dom.listAnswerTexts(config.answerSelectors || [], question);
+          // 只保留发送快照之后新出现的文本
+          const fresh = list.filter((t) => !exclude.has(t));
+          if (fresh.length) {
+            // 取最长的新文本作为当前回答
+            fresh.sort((a, b) => b.length - a.length);
+            text = fresh[0];
+          }
         } catch (e) { text = ''; }
 
         if (text && text !== lastText) {
@@ -493,9 +515,11 @@
           const r = await submitQuestion(msg.question, !!msg.deepThinking);
           // 提交成功后开始收集本平台回答，上报给 background 聚合
           if (r && r.ok && msg.sessionId) {
-            collectAnswer(msg.sessionId, msg.question);
+            collectAnswer(msg.sessionId, msg.question, r._excludeTexts);
           }
-          return r;
+          // _excludeTexts 是 Set，无法跨消息序列化，从响应中剥离
+          const { _excludeTexts, ...resp } = r || {};
+          return resp;
         })();
       }
       return undefined;
