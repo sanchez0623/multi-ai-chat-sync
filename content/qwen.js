@@ -51,6 +51,15 @@
     key: 'qwen',
     // 千问 SPA 对合成 Enter 事件敏感，禁用回车兜底避免崩页
     noEnterFallback: true,
+    answerSelectors: [
+      'div[class*="message-list"] div[class*="assistant"]',
+      'div[class*="conversation"] div[class*="answer"]',
+      'div[class*="chat-content"] div[class*="answer"]',
+      'div[class*="bubble"][class*="left"]',
+      'div[class*="receive-message"]',
+      'div[class*="answer-item"]',
+      'div[class*="markdown-body"]:last-of-type'
+    ],
     getInputEl() {
       return A.dom.first(INPUT_SELECTORS);
     },
