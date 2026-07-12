@@ -217,8 +217,9 @@
 
     /**
      * 抽取最近一条助手回答文本：
-     * 依次尝试 selectors，收集所有匹配元素，返回最后一个的纯文本（排除输入框/按钮/代码块执行控件）。
-     * 用于各平台 getAnswerText 实现。
+     * 依次尝试 selectors，收集所有匹配元素，返回其中文本最长者的纯文本
+     * （排除输入框/按钮/代码块执行控件）。
+     * 取最长而非最后一个：避免后续兜底选择器命中空模板覆盖真实回答。
      */
     lastAnswerText(selectors) {
       if (!selectors || !selectors.length) return '';
@@ -228,14 +229,46 @@
           document.querySelectorAll(s).forEach((e) => candidates.push(e));
         } catch (e) { /* bad selector */ }
       }
-      if (!candidates.length) return '';
-      // 取最后一个（通常是最新回答）
-      const el = candidates[candidates.length - 1];
-      // 克隆后移除交互/冗余节点再取文本
-      const clone = el.cloneNode(true);
-      clone.querySelectorAll('textarea, input, button, [contenteditable="true"], [class*="action"], [class*="toolbar"]').forEach((n) => n.remove());
-      const txt = (clone.innerText || clone.textContent || '').trim();
-      return txt;
+      let best = '';
+      for (const el of candidates) {
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('textarea, input, button, [contenteditable="true"], [class*="action"], [class*="toolbar"]').forEach((n) => n.remove());
+        const txt = (clone.innerText || clone.textContent || '').trim();
+        if (txt.length > best.length) best = txt;
+      }
+      return best;
+    },
+
+    /**
+     * 通用回答抽取兜底：用宽泛选择器收集候选，排除用户提问回显与输入区，
+     * 返回最长文本。当平台专用 getAnswerText 未命中时使用。
+     */
+    answerTextGeneric(question) {
+      const q = (question || '').trim();
+      const qSig = q.slice(0, 40);
+      const selectors = [
+        '[class*="answer"]', '[class*="reply"]', '[class*="receive"]',
+        '[class*="assistant"]', '[class*="agent"]', '[class*="markdown"]',
+        '[class*="bubble"]', '[class*="segment"]', '[class*="message-item"]',
+        '[class*="msg-item"]', '[class*="chat-item"]', '[class*="detail"]'
+      ];
+      const candidates = [];
+      for (const s of selectors) {
+        try { document.querySelectorAll(s).forEach((e) => candidates.push(e)); } catch (e) {}
+      }
+      let best = '';
+      for (const el of candidates) {
+        // 跳过输入区/工具栏/导航内的元素
+        if (el.closest('textarea, input, [contenteditable="true"], [class*="input-area"], [class*="editor"], [class*="toolbar"], nav, header')) continue;
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('textarea, input, button, [contenteditable="true"], [class*="action"], [class*="toolbar"], svg, img').forEach((n) => n.remove());
+        const txt = (clone.innerText || clone.textContent || '').trim();
+        if (txt.length < 20) continue;
+        // 排除与提问高度重合的短容器（用户消息回显）
+        if (qSig && txt.includes(qSig) && txt.length < q.length + 50) continue;
+        if (txt.length > best.length) best = txt;
+      }
+      return best;
     },
 
     /** 真实点击 */
@@ -317,7 +350,7 @@
       A.sendToBackground({ type: MSG.QUESTION_SUBMITTED, source: config.key, question: q })
         .then((resp) => {
           if (resp && resp.ok && resp.sessionId) {
-            collectAnswer(resp.sessionId);
+            collectAnswer(resp.sessionId, q);
           }
         });
     };
@@ -404,22 +437,25 @@
     // 收集本平台回答：轮询 config.getAnswerText，文本稳定后上报 done
     // 同一 sessionId 仅启动一次收集
     const collecting = new Set();
-    function collectAnswer(sessionId) {
+    function collectAnswer(sessionId, question) {
       if (!sessionId || collecting.has(sessionId)) return;
-      if (!config.getAnswerText) return;
       collecting.add(sessionId);
       A.log('start collectAnswer', config.key, sessionId);
 
       const INTERVAL = 2000;
       const MAX_WAIT = 120000;        // 最长收集 2 分钟
-      const STABLE_ROUNDS = 3;        // 连续 3 轮（6s）无变化视为稳定
+      const STABLE_ROUNDS = 2;        // 连续 2 轮（4s）无变化视为稳定
       const start = Date.now();
       let lastText = '';
       let stableCount = 0;
 
       const tick = () => {
         let text = '';
-        try { text = (config.getAnswerText() || '').trim(); } catch (e) { text = ''; }
+        try {
+          text = (config.getAnswerText ? config.getAnswerText() : '').trim();
+          // 平台选择器未命中时，用通用兜底（宽泛选择器 + 排除提问回显）
+          if (!text) text = dom.answerTextGeneric(question).trim();
+        } catch (e) { text = ''; }
 
         if (text && text !== lastText) {
           stableCount = 0;
@@ -457,7 +493,7 @@
           const r = await submitQuestion(msg.question, !!msg.deepThinking);
           // 提交成功后开始收集本平台回答，上报给 background 聚合
           if (r && r.ok && msg.sessionId) {
-            collectAnswer(msg.sessionId);
+            collectAnswer(msg.sessionId, msg.question);
           }
           return r;
         })();
