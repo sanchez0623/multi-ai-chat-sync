@@ -24,15 +24,20 @@
 
   const SEND_TEXTS = ['发送', 'Send'];
 
-  // 模式选择器下拉框相关候选
+  // 豆包模式选择器（Radix UI dropdown-menu）
+  // 触发器：<button data-slot="dropdown-menu-trigger" aria-haspopup="menu">
+  //         内部 <div data-valid-btn="mode-select-action-btn">，显示当前模式名（如"快速"）
   const MODE_TRIGGER_SELECTORS = [
+    '[data-slot="dropdown-menu-trigger"]',
+    '[data-valid-btn="mode-select-action-btn"]',
     'div[class*="mode-select"]',
     'div[class*="model-select"]',
-    'div[role="combobox"]',
-    'div[class*="dropdown-trigger"]',
-    'div[class*="select-trigger"]'
+    'div[role="combobox"]'
   ];
-  const MODE_TRIGGER_TEXTS = ['专家', '深度思考', '标准', '对话'];
+  // 用于识别触发器：当前显示的模式名
+  const MODE_TRIGGER_TEXTS = ['专家', '深度思考', '标准', '对话', '快速'];
+  // 深度思考目标模式名（按优先级尝试匹配菜单项）
+  const DEEP_MODE_NAMES = ['专家', '深度思考', '思考'];
 
   A.runPlatform({
     key: 'doubao',
@@ -42,18 +47,17 @@
     getSendBtn() {
       return A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
     },
-    // 豆包深度思考：点击模式下拉框 -> 选择"专家"
+    // 豆包深度思考：点击模式 dropdown trigger -> 在 radix menu 中选"专家"
     async applyDeepThinking(enabled) {
       if (!enabled) return true;
-      // 查找模式选择器触发器（显示当前模式文本的元素）
+
+      // 1. 查找模式触发器
       let trigger = A.dom.first(MODE_TRIGGER_SELECTORS);
       if (!trigger) {
-        // 兜底：在输入区附近查找包含模式文本的可点击元素
+        // 兜底：在输入区附近找含模式文本的可点击元素
         const containers = [
-          'div[class*="input-area"]',
-          'div[class*="footer"]',
-          'div[class*="toolbar"]',
-          'div[class*="chat-input"]'
+          'div[class*="input-area"]', 'div[class*="footer"]',
+          'div[class*="toolbar"]', 'div[class*="chat-input"]'
         ];
         for (const sel of containers) {
           const scope = document.querySelector(sel);
@@ -62,8 +66,7 @@
           for (const n of nodes) {
             const txt = (n.textContent || '').trim();
             if (txt && MODE_TRIGGER_TEXTS.some((t) => txt.includes(t)) && txt.length < 20) {
-              trigger = n;
-              break;
+              trigger = n; break;
             }
           }
           if (trigger) break;
@@ -71,36 +74,43 @@
       }
       if (!trigger) { A.warn('doubao: mode trigger not found'); return false; }
 
-      // 如果当前已经是"专家"模式则无需操作
+      // 2. 当前已是目标深度模式则跳过
       const currentText = (trigger.textContent || '').trim();
-      if (currentText.includes('专家')) return true;
+      if (DEEP_MODE_NAMES.some((t) => currentText.includes(t))) {
+        A.log('doubao: already deep mode', currentText);
+        return true;
+      }
 
-      // 点击打开下拉框
+      // 3. 点击打开 radix dropdown 菜单
       A.dom.click(trigger);
-      await new Promise((r) => setTimeout(r, 500));
 
-      // 在下拉列表中查找"专家"选项
-      const optionSelectors = [
-        'div[class*="option"]',
-        'div[class*="item"]',
-        'li[role="option"]',
-        'div[role="option"]',
-        'div[class*="menu"] div',
-        'div[class*="dropdown"] div'
-      ];
-      for (const sel of optionSelectors) {
-        const options = document.querySelectorAll(sel);
-        for (const opt of options) {
-          const txt = (opt.textContent || '').trim();
-          if (txt === '专家' || (txt.includes('专家') && txt.length < 20)) {
-            A.dom.click(opt);
-            A.log('doubao: selected 专家 mode');
-            await new Promise((r) => setTimeout(r, 300));
-            return true;
-          }
+      // 4. 等待菜单项渲染（radix 菜单 portal 到 body，选项为 [role="menuitem"]）
+      const menu = await A.dom.waitFor(
+        () => document.querySelector('[role="menuitem"], [role="menuitemradio"], [role="option"]'),
+        { timeout: 2500 }
+      );
+      if (!menu) {
+        A.warn('doubao: dropdown menu not rendered');
+        // 点别处关闭
+        document.body.click();
+        return false;
+      }
+      await new Promise((r) => setTimeout(r, 200));
+
+      // 5. 遍历菜单项，匹配目标深度模式名
+      const items = document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="option"]');
+      for (const item of items) {
+        const txt = (item.textContent || '').trim();
+        if (txt && DEEP_MODE_NAMES.some((t) => txt.includes(t)) && txt.length < 20) {
+          A.dom.click(item);
+          A.log('doubao: selected deep mode:', txt);
+          await new Promise((r) => setTimeout(r, 300));
+          return true;
         }
       }
-      A.warn('doubao: 专家 option not found in dropdown');
+      A.warn('doubao: deep mode option not found in menu, items=', items.length);
+      // 关闭菜单
+      document.body.click();
       return false;
     },
     findDeepThinkingToggle() {
