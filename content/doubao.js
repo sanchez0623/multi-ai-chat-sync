@@ -125,10 +125,58 @@
         A.warn('doubao: mode trigger not found');
         return false;
       }
+
+      // ========== 1.5 找到真正的可点击祖先 ==========
+      // 有时找到的是内部子元素（如 span），需要向上找真正响应点击的容器
+      const findClickableAncestor = (el) => {
+        let p = el;
+        // 先向上找有点击特征的元素
+        for (let i = 0; i < 6 && p && p !== document.body; i++) {
+          const tag = p.tagName;
+          const role = p.getAttribute && p.getAttribute('role');
+          const tab = p.getAttribute && p.getAttribute('tabindex');
+          const hasClick = p.onclick != null;
+          const cls = (p.className || '').toString();
+          if (tag === 'BUTTON' || role === 'button' || tab === '0' || hasClick ||
+              /(?:cursor-pointer|select|dropdown|trigger|toggle|menu-button)/i.test(cls)) {
+            // 找到可点击元素，继续往上看有没有更大的容器
+            el = p;
+          }
+          p = p.parentElement;
+        }
+        // 再向上找 2 层，可能有包含下拉触发器的容器
+        p = el;
+        for (let i = 0; i < 3 && p && p.parentElement && p !== document.body; i++) {
+          const parent = p.parentElement;
+          const parentCls = (parent.className || '').toString();
+          if (/(?:select|dropdown|trigger|menu|popover|popup)/i.test(parentCls)) {
+            // 检查父元素是否可点击
+            const innerBtn = parent.querySelector('button, [role="button"]');
+            if (innerBtn && innerBtn === p) {
+              // 父元素是容器，子元素是按钮，点按钮就行
+              break;
+            }
+            if (parent.querySelector('button, [role="button"]') === null) {
+              // 父元素里没有其他按钮，父元素本身可能是触发器
+              el = parent;
+            }
+          }
+          p = parent;
+        }
+        return el;
+      };
+
+      const originalTrigger = trigger;
+      trigger = findClickableAncestor(trigger);
       const triggerRect = trigger.getBoundingClientRect();
       const triggerText = (trigger.textContent || '').trim();
       A.log('doubao: found mode trigger, text=', triggerText.slice(0, 30),
-            'tag=', trigger.tagName, 'pos=', Math.round(triggerRect.left) + ',' + Math.round(triggerRect.top));
+            'tag=', trigger.tagName,
+            'originalTag=', originalTrigger.tagName,
+            'class=', (trigger.className || '').toString().slice(0, 60),
+            'pos=', Math.round(triggerRect.left) + ',' + Math.round(triggerRect.top),
+            'aria-expanded=', trigger.getAttribute && trigger.getAttribute('aria-expanded'),
+            'aria-haspopup=', trigger.getAttribute && trigger.getAttribute('aria-haspopup'));
 
       // ========== 2. 检查是否已经是深度模式 ==========
       const currentText = (trigger.textContent || '').trim();
