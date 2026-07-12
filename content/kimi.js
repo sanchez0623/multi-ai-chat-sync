@@ -50,6 +50,14 @@
 
   A.runPlatform({
     key: 'kimi',
+    answerSelectors: [
+      'div[class*="chat-content"] div[class*="segment"][class*="assistant"]',
+      'div[class*="chat-content"] div[class*="segment-content"]',
+      'div[class*="conversation"] div[class*="answer"]',
+      'div[class*="receive-message"]',
+      'div[class*="markdown-body"]:last-of-type',
+      'div[class*="segment"]:last-of-type'
+    ],
     getInputEl() {
       return A.dom.first(INPUT_SELECTORS);
     },

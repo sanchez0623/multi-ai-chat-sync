@@ -41,6 +41,16 @@
 
   A.runPlatform({
     key: 'doubao',
+    answerSelectors: [
+      'div[class*="receive-message"]',
+      'div[class*="message-content"][class*="receive"]',
+      'div[class*="chat-content"] div[class*="receive"]',
+      'div[class*="conversation"] div[class*="receive"]',
+      'div[data-type="assistant"]',
+      'div[class*="answer-item"]',
+      'div[class*="markdown-body"]:last-of-type',
+      'div[class*="bubble-content"]:last-of-type'
+    ],
     getInputEl() {
       return A.dom.first(INPUT_SELECTORS);
     },

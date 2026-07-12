@@ -38,6 +38,14 @@
 
   A.runPlatform({
     key: 'zhipu',
+    answerSelectors: [
+      'div[class*="conversation"] div[class*="answer"]',
+      'div[class*="message-list"] div[class*="assistant"]',
+      'div[class*="chat-content"] div[class*="answer"]',
+      'div[class*="receive-message"]',
+      'div[class*="answer-content"]',
+      'div[class*="markdown-body"]:last-of-type'
+    ],
     getInputEl() {
       return A.dom.first(INPUT_SELECTORS);
     },
