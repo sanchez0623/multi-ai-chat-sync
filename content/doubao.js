@@ -141,29 +141,94 @@
 
       // ========== 4. 等待菜单项渲染 ==========
       let menuItems = [];
-      for (let i = 0; i < 8; i++) {
-        const items = document.querySelectorAll(MENU_ITEM_SELECTORS.join(','));
-        // 过滤：文本中包含模式关键词的才是菜单项
+      // 先尝试找菜单容器，再在容器内找选项
+      const menuContainerSelectors = [
+        '[class*="menu-content"]',
+        '[class*="menu-list"]',
+        '[class*="dropdown-menu"]',
+        '[class*="dropdown-content"]',
+        '[class*="popover-content"]',
+        '[class*="select-panel"]',
+        '[class*="select-dropdown"]',
+        '[role="menu"]',
+        '[role="listbox"]',
+        '[data-radix-menu-content]',
+        '[data-radix-select-content]'
+      ];
+
+      for (let attempt = 0; attempt < 10; attempt++) {
+        let candidates = [];
+
+        // 4.1 先在菜单容器里找
+        for (const sel of menuContainerSelectors) {
+          const containers = document.querySelectorAll(sel);
+          for (const c of containers) {
+            if (c.offsetParent === null && getComputedStyle(c).display === 'none') continue;
+            const items = c.querySelectorAll('button, [role="menuitem"], [role="option"], div[class*="item"], div[class*="option"], li');
+            items.forEach((it) => candidates.push(it));
+          }
+        }
+
+        // 4.2 兜底：全页找带 role 的菜单项
+        if (!candidates.length) {
+          candidates = Array.from(document.querySelectorAll(MENU_ITEM_SELECTORS.join(',')));
+        }
+
+        // 4.3 终极兜底：全页找包含模式关键词的可点击元素
+        if (!candidates.length) {
+          const all = document.querySelectorAll('div, span, button, li, a');
+          for (const n of all) {
+            const txt = (n.textContent || '').trim();
+            if (txt && MODE_TRIGGER_TEXTS.some((t) => txt.includes(t)) && txt.length < 40) {
+              // 必须是可见的
+              if (n.offsetParent !== null || getComputedStyle(n).display !== 'none') {
+                candidates.push(n);
+              }
+            }
+          }
+        }
+
+        // 过滤：文本包含模式关键词
         const filtered = [];
-        for (const item of items) {
+        for (const item of candidates) {
           const txt = (item.textContent || '').trim();
-          if (txt && MODE_TRIGGER_TEXTS.some((t) => txt.includes(t)) && txt.length < 50) {
+          if (txt && MODE_TRIGGER_TEXTS.some((t) => txt.includes(t)) && txt.length < 60) {
             filtered.push(item);
           }
         }
-        if (filtered.length) {
+
+        if (filtered.length >= 2) {
           menuItems = filtered;
           break;
         }
-        await new Promise((r) => setTimeout(r, 200));
+        // 打印调试信息（只在第一次失败时）
+        if (attempt === 2 && candidates.length > 0) {
+          const sample = candidates.slice(0, 5).map((c) => (c.textContent || '').trim().slice(0, 30));
+          A.log('doubao: menu candidates found but not matching, samples=', sample.join(' | '));
+        }
+        await new Promise((r) => setTimeout(r, 250));
       }
 
       if (!menuItems.length) {
-        A.warn('doubao: dropdown menu items not found');
+        // 调试：打印所有找到的候选
+        const allCandidates = [];
+        for (const sel of menuContainerSelectors) {
+          const containers = document.querySelectorAll(sel);
+          for (const c of containers) {
+            if (c.offsetParent === null && getComputedStyle(c).display === 'none') continue;
+            allCandidates.push({
+              container: sel,
+              text: (c.textContent || '').trim().slice(0, 100)
+            });
+          }
+        }
+        A.warn('doubao: dropdown menu items not found, menu containers=', allCandidates.length,
+               allCandidates.slice(0, 3).map((c) => c.container + ':' + c.text.slice(0, 30)).join(' | '));
         document.body.click();
         return false;
       }
-      A.log('doubao: found menu items count=', menuItems.length);
+      A.log('doubao: found menu items count=', menuItems.length,
+            'texts=', menuItems.map((m) => (m.textContent || '').trim().slice(0, 20)).join(' | '));
 
       // ========== 5. 找到并点击深度模式选项 ==========
       for (const item of menuItems) {
