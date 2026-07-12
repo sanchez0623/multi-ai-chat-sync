@@ -516,6 +516,7 @@
     }
 
     onBackgroundMessage((msg) => {
+      A.log('onBackgroundMessage:', config.key, msg && msg.type, msg && (msg.question || '').slice && (msg.question || '').slice(0, 30));
       if (msg.type === MSG.PING) return { ok: true, platform: config.key, ready: !!config.getInputEl() };
       if (msg.type === MSG.SUBMIT_QUESTION) {
         return (async () => {

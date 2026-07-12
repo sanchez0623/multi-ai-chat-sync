@@ -9,7 +9,12 @@
 (function () {
   'use strict';
   const A = globalThis.AISYNC;
-  if (!A) return;
+  // 用原生 console.log 而非 A.log，方便判断 "AISYNC 还没加载" 这类极端情况
+  if (!A) {
+    console.warn('[AISync] yuanbao: AISYNC namespace not found, aborting');
+    return;
+  }
+  A.log('yuanbao: content script entered, AISYNC loaded');
 
   const INPUT_SELECTORS = [
     '#chat-input textarea',
