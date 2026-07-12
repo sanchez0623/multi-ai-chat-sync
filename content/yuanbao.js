@@ -64,39 +64,47 @@
     },
     // 元宝深度思考：点击输入框左下角的"深度思考"toggle 按钮
     async applyDeepThinking(enabled) {
-      if (!enabled) return true;
+      A.log('yuanbao: applyDeepThinking start, enable=', enabled);
 
-      A.log('yuanbao: applyDeepThinking start');
-
-      // ========== 1. 查找深度思考 toggle 按钮 ==========
+      // ========== 1. 精准查找深度思考 toggle 按钮 ==========
       let toggle = null;
+      let findMethod = '';
 
-      // 1.1 在输入框附近找（向上找输入区容器，再在里面找）
-      const input = A.dom.first(INPUT_SELECTORS);
-      if (input) {
-        let scope = input;
-        let p = input.parentElement;
-        for (let i = 0; i < 8 && p; i++) {
-          const cls = (typeof p.className === 'string' ? p.className : '');
-          if (/input-area|editor|footer|bottom|toolbar|chat-input/i.test(cls)) { scope = p; break; }
-          p = p.parentElement;
+      // 1.1 最精准：dt-button-id 属性
+      toggle = document.querySelector('[dt-button-id="deep_think"]');
+      if (toggle) { findMethod = 'dt-button-id'; }
+
+      // 1.2 兜底：aria-label
+      if (!toggle) {
+        toggle = document.querySelector('[aria-label="深度思考"]');
+        if (toggle) { findMethod = 'aria-label'; }
+      }
+
+      // 1.3 再兜底：按文本在工具栏找
+      if (!toggle) {
+        const input = A.dom.first(INPUT_SELECTORS);
+        if (input) {
+          let scope = input;
+          let p = input.parentElement;
+          for (let i = 0; i < 8 && p; i++) {
+            const cls = (typeof p.className === 'string' ? p.className : '');
+            if (/input-area|editor|footer|bottom|toolbar|chat-input/i.test(cls)) { scope = p; break; }
+            p = p.parentElement;
+          }
+          toggle = A.dom.findByText([scope], THINK_TEXTS);
+          if (toggle) { findMethod = 'text-in-input'; }
         }
-        toggle = A.dom.findByText([scope], THINK_TEXTS);
       }
 
-      // 1.2 兜底：在工具栏容器里找
+      // 1.4 终极兜底：全页文本找
       if (!toggle) {
-        toggle = A.dom.findByText(TOOLBAR_SELECTORS, THINK_TEXTS);
-      }
-
-      // 1.3 终极兜底：全页按文本找（排除消息区干扰）
-      if (!toggle) {
-        const allClickables = document.querySelectorAll('button, [role="button"], label, div[class*="toggle"], div[class*="think"]');
+        const allClickables = document.querySelectorAll('button, [role="button"], div[class*="think"], div[class*="toggle"]');
         for (const n of allClickables) {
           if (n.closest('[class*="message"], [class*="chat-list"], [class*="conversation"], [class*="sidebar"], nav, header')) continue;
           const txt = (n.textContent || '').trim();
           if (txt && THINK_TEXTS.some((t) => txt === t || txt.includes(t)) && txt.length < 20) {
             toggle = n;
+            findMethod = 'text-scan';
             break;
           }
         }
@@ -106,26 +114,91 @@
         A.warn('yuanbao: deep-thinking toggle not found');
         return false;
       }
-      A.log('yuanbao: found deep-thinking toggle, text=', (toggle.textContent || '').trim().slice(0, 30));
+      const toggleText = (toggle.textContent || '').trim();
+      const toggleClass = (toggle.className || '').toString();
+      A.log('yuanbao: found deep-thinking toggle, text=', toggleText.slice(0, 30),
+            'tag=', toggle.tagName,
+            'findMethod=', findMethod,
+            'aria-pressed=', toggle.getAttribute('aria-pressed'),
+            'aria-checked=', toggle.getAttribute('aria-checked'),
+            'class=', toggleClass.slice(0, 80));
 
-      // ========== 2. 检查是否已经激活 ==========
-      const isActive = A.dom.isToggleActive(toggle);
-      if (isActive) {
-        A.log('yuanbao: deep-thinking already active');
+      // ========== 2. 检查当前状态 ==========
+      const checkActive = (el) => {
+        // 优先检查 aria 属性
+        if (el.getAttribute('aria-pressed') === 'true') return true;
+        if (el.getAttribute('aria-checked') === 'true') return true;
+        // 检查 class 中是否有激活态关键词
+        const cls = (el.className || '').toString();
+        if (/(?:active|selected|on|enabled|_active|_on|isActive|isOn)/i.test(cls)) return true;
+        // 检查父元素的 class 和 aria
+        const parent = el.parentElement;
+        if (parent) {
+          const pCls = (parent.className || '').toString();
+          if (/(?:active|selected|on|enabled|_active|_on|isActive|isOn)/i.test(pCls)) return true;
+          if (parent.getAttribute('aria-pressed') === 'true') return true;
+          if (parent.getAttribute('aria-checked') === 'true') return true;
+        }
+        return false;
+      };
+
+      const isActive = checkActive(toggle);
+      A.log('yuanbao: current state isActive=', isActive, ', target enabled=', enabled);
+
+      if (isActive === enabled) {
+        A.log('yuanbao: already in target state, skip');
         return true;
       }
 
       // ========== 3. 点击切换 ==========
-      A.dom.click(toggle);
-      await new Promise((r) => setTimeout(r, 400));
+      const clickEl = (el) => {
+        const rect = el.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const opts = {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: cx,
+          clientY: cy,
+          button: 0,
+          buttons: 1
+        };
+        try {
+          el.dispatchEvent(new PointerEvent('pointerdown', opts));
+          el.dispatchEvent(new PointerEvent('pointerup', opts));
+        } catch (e) { /* 忽略 */ }
+        el.dispatchEvent(new MouseEvent('mousedown', opts));
+        el.dispatchEvent(new MouseEvent('mouseup', opts));
+        el.dispatchEvent(new MouseEvent('click', opts));
+        el.click();
+      };
+
+      clickEl(toggle);
+      await new Promise((r) => setTimeout(r, 500));
 
       // ========== 4. 验证切换结果 ==========
-      const nowActive = A.dom.isToggleActive(toggle);
-      A.log('yuanbao: deep-thinking toggle', nowActive ? 'success' : 'failed');
-      return nowActive;
+      const nowActive = checkActive(toggle);
+      A.log('yuanbao: deep-thinking toggle', nowActive ? 'active' : 'inactive',
+            'success=', nowActive === enabled,
+            'newClass=', (toggle.className || '').toString().slice(0, 80));
+
+      // 如果第一次点击没生效，再点一次
+      if (nowActive !== enabled) {
+        A.log('yuanbao: first click did not work, clicking again');
+        clickEl(toggle);
+        await new Promise((r) => setTimeout(r, 500));
+        const retryActive = checkActive(toggle);
+        A.log('yuanbao: after retry, active=', retryActive);
+        return retryActive === enabled;
+      }
+
+      return nowActive === enabled;
     },
     findDeepThinkingToggle() {
-      return A.dom.findByText(TOOLBAR_SELECTORS, THINK_TEXTS);
+      return document.querySelector('[dt-button-id="deep_think"]') ||
+             document.querySelector('[aria-label="深度思考"]') ||
+             A.dom.findByText(TOOLBAR_SELECTORS, THINK_TEXTS);
     },
     getAnswerText() {
       return A.dom.lastAnswerText(ANSWER_SELECTORS);
