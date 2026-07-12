@@ -83,20 +83,28 @@
 
       // ========== 1. 精准查找模式触发器 ==========
       let trigger = null;
+      let triggerWrapper = null;
+      let findMethod = '';
 
       // 1.1 最精准：通过 data-valid-btn 属性
-      const triggerWrapper = document.querySelector('[data-valid-btn="mode-select-action-btn"]');
+      triggerWrapper = document.querySelector('[data-valid-btn="mode-select-action-btn"]');
       if (triggerWrapper) {
         const btn = triggerWrapper.querySelector('button');
-        if (btn) trigger = btn;
+        if (btn) {
+          trigger = btn;
+          findMethod = 'data-valid-btn';
+        }
       }
 
       // 1.2 兜底：用 MODE_TRIGGER_SELECTORS
       if (!trigger) {
         trigger = A.dom.first(MODE_TRIGGER_SELECTORS);
-        if (trigger && trigger.tagName !== 'BUTTON') {
-          const btn = trigger.querySelector('button, [role="button"]');
-          if (btn) trigger = btn;
+        if (trigger) {
+          findMethod = 'MODE_TRIGGER_SELECTORS';
+          if (trigger.tagName !== 'BUTTON') {
+            const btn = trigger.querySelector('button, [role="button"]');
+            if (btn) trigger = btn;
+          }
         }
       }
 
@@ -107,6 +115,7 @@
           const txt = (b.textContent || '').trim();
           if (txt && MODE_TRIGGER_TEXTS.some((t) => txt.startsWith(t)) && txt.length < 20) {
             trigger = b;
+            findMethod = 'text-scan';
             break;
           }
         }
@@ -119,7 +128,10 @@
       const triggerText = (trigger.textContent || '').trim();
       A.log('doubao: found mode trigger, text=', triggerText.slice(0, 30),
             'tag=', trigger.tagName,
-            'class=', (trigger.className || '').toString().slice(0, 60));
+            'findMethod=', findMethod,
+            'hasWrapper=', !!triggerWrapper,
+            'aria-expanded=', trigger.getAttribute('aria-expanded'),
+            'data-state=', trigger.getAttribute('data-state'));
 
       // ========== 2. 检查是否已经是深度模式 ==========
       const isAlreadyDeep = DEEP_MODE_NAMES.some((t) => triggerText.includes(t));
@@ -133,35 +145,71 @@
         const rect = el.getBoundingClientRect();
         const cx = rect.left + rect.width / 2;
         const cy = rect.top + rect.height / 2;
-        const opts = {
+        const makeOpts = (type) => ({
           bubbles: true,
           cancelable: true,
           view: window,
           clientX: cx,
           clientY: cy,
-          button: 0
-        };
-        // 派发完整的鼠标事件序列
-        el.dispatchEvent(new MouseEvent('mousedown', opts));
-        el.dispatchEvent(new MouseEvent('mouseup', opts));
-        el.dispatchEvent(new MouseEvent('click', opts));
+          button: 0,
+          buttons: 1,
+          pointerId: 1,
+          pointerType: 'mouse',
+          isPrimary: true
+        });
+
+        // pointer 事件（Radix UI 可能依赖这个）
+        try {
+          el.dispatchEvent(new PointerEvent('pointerdown', makeOpts('pointerdown')));
+          el.dispatchEvent(new PointerEvent('pointerup', makeOpts('pointerup')));
+        } catch (e) { /* PointerEvent 不支持就跳过 */ }
+
+        // mouse 事件
+        el.dispatchEvent(new MouseEvent('mousedown', makeOpts('mousedown')));
+        el.dispatchEvent(new MouseEvent('mouseup', makeOpts('mouseup')));
+        el.dispatchEvent(new MouseEvent('click', makeOpts('click')));
+
         // 原生 click 兜底
         el.click();
       };
 
-      // ========== 4. 等待菜单打开并找到菜单项 ==========
-      let menuItems = [];
-      const MAX_ATTEMPTS = 15;
-
-      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-        // 第 0 次先点击
-        if (attempt === 0) {
+      const openMenu = () => {
+        // 先尝试点击外层容器
+        if (triggerWrapper && triggerWrapper !== trigger) {
+          clickEl(triggerWrapper);
+        } else {
+          // 直接点按钮
           clickEl(trigger);
         }
-        // 第 6 次还没打开，再点一次
-        if (attempt === 6) {
-          A.log('doubao: menu not opened after 6 attempts, clicking trigger again');
-          clickEl(trigger);
+      };
+
+      // ========== 4. 等待菜单打开并找到菜单项 ==========
+      let menuItems = [];
+      const MAX_ATTEMPTS = 20;
+
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        // 第 0 次点击
+        if (attempt === 0) {
+          openMenu();
+        }
+        // 第 8 次还没打开，换个方式再点
+        if (attempt === 8) {
+          A.log('doubao: menu not opened after 8 attempts, trying alternate click target');
+          // 如果之前点的是 wrapper，这次点 button；反之亦然
+          if (triggerWrapper && triggerWrapper !== trigger) {
+            clickEl(trigger); // 直接点按钮
+          } else {
+            // 向上找可能的触发器容器
+            let p = trigger.parentElement;
+            for (let i = 0; i < 4 && p && p !== document.body; i++) {
+              const cls = (p.className || '').toString();
+              if (/(?:select|dropdown|trigger|menu|popover)/i.test(cls)) {
+                clickEl(p);
+                break;
+              }
+              p = p.parentElement;
+            }
+          }
         }
 
         // 4.1 优先用 data-slot 精准找菜单项
@@ -175,39 +223,58 @@
         // 4.2 用 role=menuitem
         const itemsByRole = document.querySelectorAll('[role="menuitem"]');
         if (itemsByRole.length >= 2) {
-          menuItems = Array.from(itemsByRole);
-          A.log('doubao: found menu via role, count=', menuItems.length);
-          break;
+          // 过滤：必须包含模式关键词
+          const filtered = Array.from(itemsByRole).filter((item) => {
+            const txt = (item.textContent || '').trim();
+            return MODE_TRIGGER_TEXTS.some((t) => txt.includes(t));
+          });
+          if (filtered.length >= 2) {
+            menuItems = filtered;
+            A.log('doubao: found menu via role, count=', menuItems.length);
+            break;
+          }
         }
 
-        // 4.3 文本扫描兜底：找包含模式关键词的可见 div
-        const allDivs = document.querySelectorAll('div');
+        // 4.3 文本扫描兜底（收紧条件：必须包含至少2个模式关键词）
+        const allDivs = document.querySelectorAll('[role="menuitem"] > div, div[class*="menu"] > div, div[class*="dropdown"] > div');
         const candidates = [];
         const seen = new Set();
         for (const d of allDivs) {
           const txt = (d.textContent || '').trim();
-          if (!txt || txt.length > 60) continue;
-          if (!MODE_TRIGGER_TEXTS.some((t) => txt.includes(t))) continue;
+          if (!txt || txt.length > 80) continue;
+          // 必须包含至少1个模式关键词，且看起来像菜单项
+          const matchCount = MODE_TRIGGER_TEXTS.filter((t) => txt.includes(t)).length;
+          if (matchCount === 0) continue;
           const rect = d.getBoundingClientRect();
-          if (rect.width < 100 || rect.height < 15) continue;
+          if (rect.width < 80 || rect.height < 15) continue;
           if (d.offsetParent === null && getComputedStyle(d).display === 'none') continue;
-          const key = txt.slice(0, 10);
+          const key = txt.slice(0, 12);
           if (seen.has(key)) continue;
           seen.add(key);
           candidates.push({ el: d, text: txt, rect });
         }
         if (candidates.length >= 2) {
-          menuItems = candidates.map((c) => c.el);
-          A.log('doubao: found menu via text scan, count=', menuItems.length,
-                'texts=', candidates.map((c) => c.text.slice(0, 15)).join(' | '));
-          break;
+          // 进一步过滤：必须有"专家"或"深度思考"在候选里
+          const hasDeep = candidates.some((c) => DEEP_MODE_NAMES.some((t) => c.text.includes(t)));
+          if (hasDeep) {
+            menuItems = candidates.map((c) => c.el);
+            A.log('doubao: found menu via text scan, count=', menuItems.length,
+                  'texts=', candidates.map((c) => c.text.slice(0, 15)).join(' | '));
+            break;
+          }
         }
 
         await new Promise((r) => setTimeout(r, 200));
       }
 
       if (!menuItems.length) {
-        A.warn('doubao: dropdown menu not opened, items not found');
+        // 调试：打印点击后按钮的状态变化
+        A.warn('doubao: dropdown menu not opened, items not found',
+               'aria-expanded=', trigger.getAttribute('aria-expanded'),
+               'data-state=', trigger.getAttribute('data-state'));
+        // 打印页面上所有可见的 menuitem
+        const allMenuItems = document.querySelectorAll('[role="menuitem"], [data-slot*="menu"]');
+        A.warn('doubao: all menu-like elements on page:', allMenuItems.length);
         return false;
       }
       A.log('doubao: found menu items count=', menuItems.length,
@@ -237,7 +304,7 @@
       clickEl(targetItem);
 
       // ========== 6. 验证切换结果 ==========
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 800));
       const afterText = (trigger.textContent || '').trim();
       const success = DEEP_MODE_NAMES.some((t) => afterText.includes(t));
       A.log('doubao: deep thinking apply result, current text=', afterText.slice(0, 20), 'success=', success);
