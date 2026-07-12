@@ -56,6 +56,8 @@
     'div[class*="dropdown-item"]',
     'li[class*="item"]'
   ];
+  // 深度思考 toggle 按钮文本
+  const DEEP_THOUGHT_TEXTS = ['深度思考', 'Deep Thinking', '深度搜索'];
 
   A.runPlatform({
     key: 'doubao',
@@ -75,24 +77,57 @@
     getSendBtn() {
       return A.dom.findSendButton(SEND_SELECTORS, SEND_TEXTS);
     },
-    // 豆包深度思考：点开模式下拉菜单，选择"专家"模式
+    // 豆包深度思考：优先找"深度思考"toggle 按钮，找不到则用模式下拉菜单兜底
     async applyDeepThinking(enabled) {
       if (!enabled) return true;
 
       A.log('doubao: applyDeepThinking start');
 
-      // ========== 1. 查找模式触发器 ==========
+      // ========== 方案一：直接找"深度思考"toggle 按钮（输入框左下角） ==========
+      let deepThinkBtn = null;
+      // 在输入框附近找
+      const inputEl = config.getInputEl();
+      if (inputEl) {
+        let scope = inputEl;
+        let p = inputEl.parentElement;
+        for (let i = 0; i < 8 && p; i++) {
+          const cls = (typeof p.className === 'string' ? p.className : '');
+          if (/input-area|editor|footer|bottom|toolbar|chat-input/i.test(cls)) { scope = p; break; }
+          p = p.parentElement;
+        }
+        deepThinkBtn = A.dom.findByText([scope], DEEP_THOUGHT_TEXTS);
+      }
+      // 兜底：在工具栏容器里找
+      if (!deepThinkBtn) {
+        deepThinkBtn = A.dom.findByText(TOOLBAR_CONTAINERS, DEEP_THOUGHT_TEXTS);
+      }
+      if (deepThinkBtn) {
+        A.log('doubao: found deep-think toggle button');
+        const isActive = A.dom.isToggleActive(deepThinkBtn);
+        if (isActive) {
+          A.log('doubao: deep-think already active');
+          return true;
+        }
+        A.dom.click(deepThinkBtn);
+        await new Promise((r) => setTimeout(r, 400));
+        const nowActive = A.dom.isToggleActive(deepThinkBtn);
+        A.log('doubao: deep-think toggle', nowActive ? 'success' : 'failed');
+        if (nowActive) return true;
+        // toggle 方式失败，继续尝试下拉菜单方案
+      }
+
+      // ========== 方案二：模式下拉菜单（选"专家"模式） ==========
+      A.log('doubao: fallback to mode dropdown');
+
+      // 1. 查找模式触发器
       let trigger = null;
 
-      // 1.1 优先用选择器找
       trigger = A.dom.first(MODE_TRIGGER_SELECTORS);
       if (trigger) {
-        // 如果找到的是容器，再在里面找可点击的 button 或 role=button
         const btn = trigger.querySelector('button, [role="button"]');
         if (btn) trigger = btn;
       }
 
-      // 1.2 兜底：在工具栏容器内按文本找
       if (!trigger) {
         for (const sel of TOOLBAR_CONTAINERS) {
           const scope = document.querySelector(sel);
@@ -109,11 +144,9 @@
         }
       }
 
-      // 1.3 终极兜底：全页按文本找模式触发器（过滤掉非工具栏区域）
       if (!trigger) {
         const allClickables = document.querySelectorAll('button, [role="button"], div[class*="select"]');
         for (const n of allClickables) {
-          // 排除聊天消息区、侧边栏等
           if (n.closest('[class*="message"], [class*="chat-list"], [class*="conversation"], [class*="sidebar"], nav, header')) continue;
           const txt = (n.textContent || '').trim();
           if (txt && MODE_TRIGGER_TEXTS.some((t) => txt === t || txt.startsWith(t)) && txt.length < 25) {
@@ -124,12 +157,12 @@
       }
 
       if (!trigger) {
-        A.warn('doubao: mode trigger not found');
+        A.warn('doubao: mode trigger not found (both toggle and dropdown failed)');
         return false;
       }
       A.log('doubao: found mode trigger, text=', (trigger.textContent || '').trim().slice(0, 30));
 
-      // ========== 2. 检查是否已经是深度模式 ==========
+      // 2. 检查是否已经是深度模式
       const currentText = (trigger.textContent || '').trim();
       const isAlreadyDeep = DEEP_MODE_NAMES.some((t) => currentText.includes(t));
       if (isAlreadyDeep) {
@@ -137,15 +170,14 @@
         return true;
       }
 
-      // ========== 3. 点击触发器打开下拉菜单 ==========
+      // 3. 点击触发器打开下拉菜单
       A.dom.click(trigger);
       await new Promise((r) => setTimeout(r, 300));
 
-      // ========== 4. 等待菜单项渲染 ==========
+      // 4. 等待菜单项渲染
       let menuItems = [];
       for (let i = 0; i < 8; i++) {
         const items = document.querySelectorAll(MENU_ITEM_SELECTORS.join(','));
-        // 过滤：文本中包含模式关键词的才是菜单项
         const filtered = [];
         for (const item of items) {
           const txt = (item.textContent || '').trim();
@@ -162,24 +194,21 @@
 
       if (!menuItems.length) {
         A.warn('doubao: dropdown menu items not found');
-        // 尝试关闭菜单
         document.body.click();
         return false;
       }
       A.log('doubao: found menu items count=', menuItems.length);
 
-      // ========== 5. 找到并点击深度模式选项 ==========
+      // 5. 找到并点击深度模式选项
       for (const item of menuItems) {
         const txt = (item.textContent || '').trim();
         if (txt && DEEP_MODE_NAMES.some((t) => txt.includes(t))) {
           A.dom.click(item);
           A.log('doubao: clicked deep mode option:', txt.slice(0, 30));
-
-          // 等待切换完成并验证
           await new Promise((r) => setTimeout(r, 500));
           const newText = (trigger.textContent || '').trim();
           const success = DEEP_MODE_NAMES.some((t) => newText.includes(t));
-          A.log('doubao: deep mode switch', success ? 'success' : 'failed', 'newText=', newText.slice(0, 30));
+          A.log('doubao: deep mode switch (dropdown)', success ? 'success' : 'failed', 'newText=', newText.slice(0, 30));
           return success;
         }
       }
