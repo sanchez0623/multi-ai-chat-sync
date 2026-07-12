@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI 多模型同步提问助手",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "在元宝/豆包/千问/Kimi/智谱中同步同一个问题，支持多选模型、按平台开关深度思考、侧边栏聚合看板。",
   "permissions": [
     "storage",
