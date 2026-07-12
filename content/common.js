@@ -419,7 +419,7 @@
         if (!input) return { ok: false, error: '输入框未找到' };
         await dom.setInputText(input, question);
         await new Promise((r) => setTimeout(r, 300));
-        if (deepThinking) await applyDeepThinking(true);
+        await applyDeepThinking(!!deepThinking);
 
         // 发送前快照当前页面上已有的回答文本（旧轮次），collectAnswer 只接受快照外的新文本
         const excludeTexts = new Set(dom.listAnswerTexts(config.answerSelectors || [], question));
