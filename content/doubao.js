@@ -125,7 +125,10 @@
         A.warn('doubao: mode trigger not found');
         return false;
       }
-      A.log('doubao: found mode trigger, text=', (trigger.textContent || '').trim().slice(0, 30));
+      const triggerRect = trigger.getBoundingClientRect();
+      const triggerText = (trigger.textContent || '').trim();
+      A.log('doubao: found mode trigger, text=', triggerText.slice(0, 30),
+            'tag=', trigger.tagName, 'pos=', Math.round(triggerRect.left) + ',' + Math.round(triggerRect.top));
 
       // ========== 2. 检查是否已经是深度模式 ==========
       const currentText = (trigger.textContent || '').trim();
@@ -141,6 +144,7 @@
 
       // ========== 4. 等待菜单项渲染 ==========
       let menuItems = [];
+      const triggerRect2 = trigger.getBoundingClientRect();
       // 先尝试找菜单容器，再在容器内找选项
       const menuContainerSelectors = [
         '[class*="menu-content"]',
@@ -150,37 +154,73 @@
         '[class*="popover-content"]',
         '[class*="select-panel"]',
         '[class*="select-dropdown"]',
+        '[class*="popup"]',
         '[role="menu"]',
         '[role="listbox"]',
         '[data-radix-menu-content]',
         '[data-radix-select-content]'
       ];
 
-      for (let attempt = 0; attempt < 10; attempt++) {
+      for (let attempt = 0; attempt < 12; attempt++) {
         let candidates = [];
 
         // 4.1 先在菜单容器里找
         for (const sel of menuContainerSelectors) {
           const containers = document.querySelectorAll(sel);
           for (const c of containers) {
+            // 必须是可见的
             if (c.offsetParent === null && getComputedStyle(c).display === 'none') continue;
-            const items = c.querySelectorAll('button, [role="menuitem"], [role="option"], div[class*="item"], div[class*="option"], li');
+            const rect = c.getBoundingClientRect();
+            if (rect.width < 10 || rect.height < 10) continue;
+            // 菜单应该在触发器附近（上下左右一定范围内）
+            const nearTrigger =
+              rect.left < triggerRect2.right + 200 &&
+              rect.right > triggerRect2.left - 200 &&
+              rect.bottom > triggerRect2.top - 200 &&
+              rect.top < triggerRect2.bottom + 300;
+            if (!nearTrigger) continue;
+            const items = c.querySelectorAll('button, [role="menuitem"], [role="option"], div[class*="item"], div[class*="option"], li, [class*="menu"] > div');
             items.forEach((it) => candidates.push(it));
           }
         }
 
-        // 4.2 兜底：全页找带 role 的菜单项
+        // 4.2 兜底：用 elementFromPoint 在触发器下方几个点找菜单元素
+        if (!candidates.length) {
+          const testPoints = [
+            { x: triggerRect2.left + triggerRect2.width / 2, y: triggerRect2.bottom + 10 },
+            { x: triggerRect2.left + triggerRect2.width / 2, y: triggerRect2.bottom + 30 },
+            { x: triggerRect2.left + 20, y: triggerRect2.bottom + 20 },
+            { x: triggerRect2.right - 20, y: triggerRect2.bottom + 20 }
+          ];
+          for (const pt of testPoints) {
+            const el = document.elementFromPoint(pt.x, pt.y);
+            if (el) {
+              // 向上找可能的菜单容器
+              let p = el;
+              for (let i = 0; i < 8 && p && p !== document.body; i++) {
+                const cls = (p.className || '').toString();
+                if (/menu|dropdown|popover|popup|select/i.test(cls)) {
+                  const items = p.querySelectorAll('button, [role="menuitem"], [role="option"], div[class*="item"], li');
+                  items.forEach((it) => candidates.push(it));
+                  break;
+                }
+                p = p.parentElement;
+              }
+            }
+          }
+        }
+
+        // 4.3 再兜底：全页找带 role 的菜单项
         if (!candidates.length) {
           candidates = Array.from(document.querySelectorAll(MENU_ITEM_SELECTORS.join(',')));
         }
 
-        // 4.3 终极兜底：全页找包含模式关键词的可点击元素
+        // 4.4 终极兜底：全页找包含模式关键词的可点击元素
         if (!candidates.length) {
           const all = document.querySelectorAll('div, span, button, li, a');
           for (const n of all) {
             const txt = (n.textContent || '').trim();
             if (txt && MODE_TRIGGER_TEXTS.some((t) => txt.includes(t)) && txt.length < 40) {
-              // 必须是可见的
               if (n.offsetParent !== null || getComputedStyle(n).display !== 'none') {
                 candidates.push(n);
               }
@@ -190,10 +230,16 @@
 
         // 过滤：文本包含模式关键词
         const filtered = [];
+        const seenTexts = new Set();
         for (const item of candidates) {
           const txt = (item.textContent || '').trim();
           if (txt && MODE_TRIGGER_TEXTS.some((t) => txt.includes(t)) && txt.length < 60) {
-            filtered.push(item);
+            // 去重（相同文本只保留一个）
+            const key = txt.slice(0, 20);
+            if (!seenTexts.has(key)) {
+              seenTexts.add(key);
+              filtered.push(item);
+            }
           }
         }
 
@@ -201,29 +247,42 @@
           menuItems = filtered;
           break;
         }
-        // 打印调试信息（只在第一次失败时）
-        if (attempt === 2 && candidates.length > 0) {
-          const sample = candidates.slice(0, 5).map((c) => (c.textContent || '').trim().slice(0, 30));
-          A.log('doubao: menu candidates found but not matching, samples=', sample.join(' | '));
+        // 打印调试信息
+        if (attempt === 3) {
+          A.log('doubao: menu search attempt', attempt,
+                'candidates=', candidates.length,
+                'filtered=', filtered.length);
+          if (candidates.length > 0) {
+            const sample = candidates.slice(0, 5).map((c) => {
+              const t = (c.textContent || '').trim().slice(0, 25);
+              const cls = (c.className || '').toString().slice(0, 30);
+              return t + '(' + cls + ')';
+            });
+            A.log('doubao: candidate samples:', sample.join(' | '));
+          }
+          // 检查点击后页面上新增的可见元素
+          const allVisible = document.querySelectorAll('div[class*="menu"], div[class*="dropdown"], div[class*="popover"], div[class*="popup"]');
+          const visibleOnes = [];
+          for (const v of allVisible) {
+            if (v.offsetParent !== null && getComputedStyle(v).display !== 'none') {
+              const r = v.getBoundingClientRect();
+              if (r.width > 50 && r.height > 30) {
+                visibleOnes.push({
+                  cls: (v.className || '').toString().slice(0, 50),
+                  text: (v.textContent || '').trim().slice(0, 50),
+                  pos: Math.round(r.left) + ',' + Math.round(r.top)
+                });
+              }
+            }
+          }
+          A.log('doubao: visible menu-like elements count=', visibleOnes.length,
+                visibleOnes.slice(0, 3).map((v) => v.cls + ':' + v.text.slice(0, 20)).join(' | '));
         }
         await new Promise((r) => setTimeout(r, 250));
       }
 
       if (!menuItems.length) {
-        // 调试：打印所有找到的候选
-        const allCandidates = [];
-        for (const sel of menuContainerSelectors) {
-          const containers = document.querySelectorAll(sel);
-          for (const c of containers) {
-            if (c.offsetParent === null && getComputedStyle(c).display === 'none') continue;
-            allCandidates.push({
-              container: sel,
-              text: (c.textContent || '').trim().slice(0, 100)
-            });
-          }
-        }
-        A.warn('doubao: dropdown menu items not found, menu containers=', allCandidates.length,
-               allCandidates.slice(0, 3).map((c) => c.container + ':' + c.text.slice(0, 30)).join(' | '));
+        A.warn('doubao: dropdown menu items not found after all attempts');
         document.body.click();
         return false;
       }
