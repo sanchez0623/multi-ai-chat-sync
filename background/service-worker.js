@@ -60,9 +60,12 @@ async function getSettings() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// 与 content/common.js 中 CONTENT_VERSION 保持一致
-// 不一致时 PING 会带上 pageVersion 字段回来，提示用户需要刷新扩展或重新打开标签页
-const EXPECTED_CONTENT_VERSION = '1.1.11';
+// content script 跑在 sandbox 里读不到 manifest，所以 common.js 里有一份 CONTENT_VERSION。
+// service worker 能直接读 manifest，这里就不再硬编码了，避免每次升级要改三处。
+function getExpectedContentVersion() {
+  try { return chrome.runtime.getManifest().version; }
+  catch (e) { return ''; }
+}
 
 /** 等待 Tab 加载完成 */
 async function waitTabComplete(tabId, timeout = 15000) {
@@ -189,9 +192,10 @@ async function sendToPlatform(platformKey, question, deepThinking, settings, ses
 
   // 检测到老 content script：返回了 ok 但 version 不匹配。这种情况下 SUBMIT_QUESTION
   // 协议可能不兼容，最稳的做法是主动重注一次。
-  if (pageVersion && pageVersion !== EXPECTED_CONTENT_VERSION) {
+  const expectedVersion = getExpectedContentVersion();
+  if (pageVersion && expectedVersion && pageVersion !== expectedVersion) {
     console.warn('[AISync] sendToPlatform: stale content script for', platformKey,
-      'expected=', EXPECTED_CONTENT_VERSION, 'got=', pageVersion, 're-injecting...');
+      'expected=', expectedVersion, 'got=', pageVersion, 're-injecting...');
     const injected = await injectContentScripts(tab.id, platformKey);
     if (injected) {
       await sleep(500);
