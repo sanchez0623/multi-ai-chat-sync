@@ -62,7 +62,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 与 content/common.js 中 CONTENT_VERSION 保持一致
 // 不一致时 PING 会带上 pageVersion 字段回来，提示用户需要刷新扩展或重新打开标签页
-const EXPECTED_CONTENT_VERSION = '1.1.10';
+const EXPECTED_CONTENT_VERSION = '1.1.11';
 
 /** 等待 Tab 加载完成 */
 async function waitTabComplete(tabId, timeout = 15000) {
