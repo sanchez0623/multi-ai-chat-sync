@@ -25,7 +25,8 @@
     SUBMIT_QUESTION: 'SUBMIT_QUESTION',       // bg -> content: 转发问题到目标平台
     BROADCAST: 'BROADCAST',                   // popup -> bg: 手动广播一个问题
     PING: 'PING',                             // bg -> content: 探测页面是否就绪
-    STATUS: 'STATUS'                          // content -> bg/popup: 当前页面状态
+    STATUS: 'STATUS',                         // content -> bg/popup: 当前页面状态
+    ANSWER_UPDATE: 'ANSWER_UPDATE'            // content -> bg: 上报当前回答文本与状态
   };
 
   const DEFAULTS = {
@@ -214,6 +215,29 @@
       return false;
     },
 
+    /**
+     * 抽取最近一条助手回答文本：
+     * 依次尝试 selectors，收集所有匹配元素，返回最后一个的纯文本（排除输入框/按钮/代码块执行控件）。
+     * 用于各平台 getAnswerText 实现。
+     */
+    lastAnswerText(selectors) {
+      if (!selectors || !selectors.length) return '';
+      const candidates = [];
+      for (const s of selectors) {
+        try {
+          document.querySelectorAll(s).forEach((e) => candidates.push(e));
+        } catch (e) { /* bad selector */ }
+      }
+      if (!candidates.length) return '';
+      // 取最后一个（通常是最新回答）
+      const el = candidates[candidates.length - 1];
+      // 克隆后移除交互/冗余节点再取文本
+      const clone = el.cloneNode(true);
+      clone.querySelectorAll('textarea, input, button, [contenteditable="true"], [class*="action"], [class*="toolbar"]').forEach((n) => n.remove());
+      const txt = (clone.innerText || clone.textContent || '').trim();
+      return txt;
+    },
+
     /** 真实点击 */
     click(el) {
       if (!el) return false;
@@ -289,7 +313,13 @@
       const q = readQuestion();
       if (!q) return;
       A.log('broadcast question from', config.key, q.slice(0, 60));
-      A.sendToBackground({ type: MSG.QUESTION_SUBMITTED, source: config.key, question: q });
+      // 不阻塞点击事件：异步获取 sessionId 后开始收集本平台回答
+      A.sendToBackground({ type: MSG.QUESTION_SUBMITTED, source: config.key, question: q })
+        .then((resp) => {
+          if (resp && resp.ok && resp.sessionId) {
+            collectAnswer(resp.sessionId);
+          }
+        });
     };
 
     // 监听发送按钮点击（capture 阶段，先于平台清空输入框）
@@ -371,10 +401,66 @@
       }
     }
 
+    // 收集本平台回答：轮询 config.getAnswerText，文本稳定后上报 done
+    // 同一 sessionId 仅启动一次收集
+    const collecting = new Set();
+    function collectAnswer(sessionId) {
+      if (!sessionId || collecting.has(sessionId)) return;
+      if (!config.getAnswerText) return;
+      collecting.add(sessionId);
+      A.log('start collectAnswer', config.key, sessionId);
+
+      const INTERVAL = 2000;
+      const MAX_WAIT = 120000;        // 最长收集 2 分钟
+      const STABLE_ROUNDS = 3;        // 连续 3 轮（6s）无变化视为稳定
+      const start = Date.now();
+      let lastText = '';
+      let stableCount = 0;
+
+      const tick = () => {
+        let text = '';
+        try { text = (config.getAnswerText() || '').trim(); } catch (e) { text = ''; }
+
+        if (text && text !== lastText) {
+          stableCount = 0;
+          lastText = text;
+          A.sendToBackground({ type: MSG.ANSWER_UPDATE, sessionId, platform: config.key, status: 'sending', answer: text });
+        } else if (text && text === lastText) {
+          stableCount++;
+          if (stableCount >= STABLE_ROUNDS) {
+            A.sendToBackground({ type: MSG.ANSWER_UPDATE, sessionId, platform: config.key, status: 'done', answer: text });
+            collecting.delete(sessionId);
+            A.log('collectAnswer done', config.key, sessionId, text.slice(0, 60));
+            return;
+          }
+        }
+
+        if (Date.now() - start >= MAX_WAIT) {
+          // 超时：若有文本则标记 done，否则不再上报
+          if (lastText) {
+            A.sendToBackground({ type: MSG.ANSWER_UPDATE, sessionId, platform: config.key, status: 'done', answer: lastText });
+          }
+          collecting.delete(sessionId);
+          A.log('collectAnswer timeout', config.key, sessionId);
+          return;
+        }
+        setTimeout(tick, INTERVAL);
+      };
+      // 首次延迟，等待回答开始渲染
+      setTimeout(tick, 1500);
+    }
+
     onBackgroundMessage((msg) => {
       if (msg.type === MSG.PING) return { ok: true, platform: config.key, ready: !!config.getInputEl() };
       if (msg.type === MSG.SUBMIT_QUESTION) {
-        return submitQuestion(msg.question, !!msg.deepThinking);
+        return (async () => {
+          const r = await submitQuestion(msg.question, !!msg.deepThinking);
+          // 提交成功后开始收集本平台回答，上报给 background 聚合
+          if (r && r.ok && msg.sessionId) {
+            collectAnswer(msg.sessionId);
+          }
+          return r;
+        })();
       }
       return undefined;
     });

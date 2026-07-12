@@ -105,6 +105,19 @@
     },
     findDeepThinkingToggle() {
       return null; // 豆包使用自定义 applyDeepThinking，不需要 toggle
+    },
+    getAnswerText() {
+      // 豆包回答区：消息流中助手侧消息容器
+      return A.dom.lastAnswerText([
+        'div[class*="receive-message"]',
+        'div[class*="message-content"][class*="receive"]',
+        'div[class*="chat-content"] div[class*="receive"]',
+        'div[class*="conversation"] div[class*="receive"]',
+        'div[data-type="assistant"]',
+        'div[class*="answer-item"]',
+        'div[class*="markdown-body"]:last-of-type',
+        'div[class*="bubble-content"]:last-of-type'
+      ]);
     }
   });
 })();

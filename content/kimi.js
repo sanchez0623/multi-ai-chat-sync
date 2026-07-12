@@ -82,6 +82,17 @@
     findDeepThinkingToggle() {
       return A.dom.findByText(TOOLBAR_SELECTORS, ['深度思考']) ||
              A.dom.findByText(TOOLBAR_SELECTORS, THINK_TEXTS);
+    },
+    getAnswerText() {
+      // Kimi 回答以 segment 形式分段渲染，取最后一段
+      return A.dom.lastAnswerText([
+        'div[class*="chat-content"] div[class*="segment"][class*="assistant"]',
+        'div[class*="chat-content"] div[class*="segment-content"]',
+        'div[class*="conversation"] div[class*="answer"]',
+        'div[class*="receive-message"]',
+        'div[class*="markdown-body"]:last-of-type',
+        'div[class*="segment"]:last-of-type'
+      ]);
     }
   });
 })();

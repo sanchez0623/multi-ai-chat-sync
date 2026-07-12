@@ -115,7 +115,7 @@ async function injectContentScripts(tabId, platformKey) {
 }
 
 /** 向单个平台转发问题 */
-async function sendToPlatform(platformKey, question, deepThinking, settings) {
+async function sendToPlatform(platformKey, question, deepThinking, settings, sessionId) {
   const patterns = MATCH_PATTERNS[platformKey];
   if (!patterns) return { platform: platformKey, ok: false, error: '未知平台' };
 
@@ -148,10 +148,10 @@ async function sendToPlatform(platformKey, question, deepThinking, settings) {
     return { platform: platformKey, ok: false, error: '内容脚本未就绪（可能未登录或页面异常）' };
   }
 
-  // 向就绪的 frame 发送 SUBMIT_QUESTION
+  // 向就绪的 frame 发送 SUBMIT_QUESTION（带 sessionId 以便内容脚本回传回答）
   try {
     const resp = await chrome.tabs.sendMessage(tab.id, {
-      type: 'SUBMIT_QUESTION', question, deepThinking
+      type: 'SUBMIT_QUESTION', question, deepThinking, sessionId
     }, { frameId: readyFrameId });
     return { platform: platformKey, ok: !!(resp && resp.ok), error: resp && resp.error };
   } catch (e) {
@@ -159,21 +159,86 @@ async function sendToPlatform(platformKey, question, deepThinking, settings) {
   }
 }
 
+// ---------- 会话状态存储 ----------
+const MAX_SESSIONS = 50;
+
+async function getSessions() {
+  const res = await chrome.storage.local.get('sessions');
+  return res.sessions || [];
+}
+
+async function saveSessions(list) {
+  // 限制条数，超出按时间裁剪（最新在前）
+  if (list.length > MAX_SESSIONS) list = list.slice(0, MAX_SESSIONS);
+  await chrome.storage.local.set({ sessions: list });
+}
+
+/** 新建会话并写入存储，返回 session 对象 */
+async function createSession(question, source, platformKeys) {
+  const list = await getSessions();
+  const now = Date.now();
+  const session = {
+    id: 's_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    question,
+    createdAt: now,
+    source: source || null,
+    platforms: { __order: platformKeys.slice() }
+  };
+  for (const k of platformKeys) {
+    session.platforms[k] = { status: 'pending', answer: '', error: null, updatedAt: now };
+  }
+  list.unshift(session);
+  await saveSessions(list);
+  return session;
+}
+
+/** 更新某会话中某平台的状态/回答 */
+async function updateSessionPlatform(sessionId, platformKey, patch) {
+  const list = await getSessions();
+  const idx = list.findIndex((s) => s.id === sessionId);
+  if (idx < 0) return null;
+  const sess = list[idx];
+  if (!sess.platforms[platformKey]) return null;
+  sess.platforms[platformKey] = {
+    ...sess.platforms[platformKey],
+    ...patch,
+    updatedAt: Date.now()
+  };
+  await saveSessions(list);
+  return sess;
+}
+
+/** 标记某平台提交失败（用于 sendToPlatform 返回错误时） */
+async function markSessionError(sessionId, platformKey, error) {
+  return updateSessionPlatform(sessionId, platformKey, { status: 'error', error });
+}
+
 /**
- * 向多个平台广播问题
+ * 向多个平台广播问题，并创建会话记录
  * @param question 问题文本
  * @param excludeKey 排除的平台（来源平台），可空
- * @returns 各平台结果数组
+ * @param source 来源平台（用于会话记录），可空
+ * @returns { sessionId, results }
  */
-async function broadcast(question, excludeKey) {
+async function broadcast(question, excludeKey, source) {
   const settings = await getSettings();
   const targets = PLATFORM_ORDER.filter((k) => settings.targets[k] && k !== excludeKey);
-  if (!targets.length) return [];
+  if (!targets.length) return { sessionId: null, results: [] };
+
+  // 会话中包含来源平台（若有），以便展示来源平台回答
+  const sessionPlatforms = source ? (targets.includes(source) ? targets : [source].concat(targets)) : targets;
+  const session = await createSession(question, source, sessionPlatforms);
 
   const results = await Promise.all(
-    targets.map((k) => sendToPlatform(k, question, !!settings.deepThinking[k], settings))
+    targets.map((k) => sendToPlatform(k, question, !!settings.deepThinking[k], settings, session.id))
   );
-  return results;
+  // 根据转发结果更新会话状态：失败的标记 error，成功的保持 pending（等待内容脚本上报回答）
+  for (const r of results) {
+    if (r && !r.ok) {
+      await markSessionError(session.id, r.platform, r.error || '发送失败');
+    }
+  }
+  return { sessionId: session.id, results };
 }
 
 // ---------- 消息中枢 ----------
@@ -182,15 +247,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !msg.type) return sendResponse({ ok: false, error: 'no type' });
 
     if (msg.type === 'QUESTION_SUBMITTED') {
-      // 某平台用户发起提问 -> 转发到其它已启用平台
-      const results = await broadcast(msg.question, msg.source);
-      return sendResponse({ ok: true, results });
+      // 某平台用户发起提问 -> 转发到其它已启用平台，并创建会话
+      const { sessionId, results } = await broadcast(msg.question, msg.source, msg.source);
+      return sendResponse({ ok: true, sessionId, results });
     }
 
     if (msg.type === 'BROADCAST') {
-      // popup 手动广播 -> 发送到所有已启用平台
-      const results = await broadcast(msg.question, null);
-      return sendResponse({ ok: true, results });
+      // 侧边栏手动广播 -> 发送到所有已启用平台，并创建会话
+      const { sessionId, results } = await broadcast(msg.question, null, null);
+      return sendResponse({ ok: true, sessionId, results });
+    }
+
+    if (msg.type === 'ANSWER_UPDATE') {
+      // 内容脚本上报某平台回答 -> 更新会话存储（侧边栏订阅 storage 变化自动刷新）
+      if (msg.sessionId && msg.platform) {
+        await updateSessionPlatform(msg.sessionId, msg.platform, {
+          status: msg.status || 'sending',
+          answer: msg.answer || '',
+          error: msg.status === 'error' ? (msg.error || null) : null
+        });
+      }
+      return sendResponse({ ok: true });
     }
 
     if (msg.type === 'GET_SETTINGS') {
@@ -210,5 +287,14 @@ chrome.runtime.onInstalled.addListener(async () => {
     if (stored[k] === undefined) patch[k] = DEFAULTS[k];
   }
   if (Object.keys(patch).length) await chrome.storage.local.set(patch);
+  // 允许在所有平台页面打开侧边栏
+  try { await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }); } catch (e) {}
   console.log('[AISync] installed, defaults ensured');
+});
+
+// 点击扩展图标打开侧边栏（无 default_popup 时由 onClicked 触发）
+chrome.action.onClicked.addListener((tab) => {
+  try { chrome.sidePanel.open({ tabId: tab.id, windowId: tab.windowId }); } catch (e) {
+    console.warn('[AISync] open sidePanel failed', e && e.message);
+  }
 });

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 同步提问 · 聚合看板</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="title">
+      <span class="logo">⇄</span>
+      <span>AI 多模型同步提问</span>
+    </div>
+    <div class="head-actions">
+      <button id="toggleTargets" class="ghost-btn" title="显示/隐藏模型选择">模型</button>
+      <button id="openOptions" class="ghost-btn" title="设置">⚙</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <!-- 平台选择区（可折叠） -->
+    <section id="targetsSection" class="section collapsible">
+      <div class="section-head">
+        <span class="section-title">同步目标</span>
+        <span class="hint">多选 · 深度思考各平台独立</span>
+      </div>
+      <ul id="platformList" class="platform-list"></ul>
+    </section>
+
+    <!-- 提问区 -->
+    <section class="section sticky-ask">
+      <textarea id="question" rows="3" placeholder="输入要同时问所有已选模型的问题…"></textarea>
+      <div class="ask-actions">
+        <label class="mini-switch" title="无标签时自动打开">
+          <input type="checkbox" id="openNewTab" />
+          <span>自动开标签</span>
+        </label>
+        <button id="broadcast" class="primary-btn" disabled>广播提问</button>
+      </div>
+    </section>
+
+    <!-- 会话历史 + 聚合看板 -->
+    <section class="section">
+      <div class="section-head">
+        <span class="section-title">会话</span>
+        <button id="clearHistory" class="ghost-btn mini">清空</button>
+      </div>
+      <div id="emptyHint" class="empty-hint">还没有会话，输入问题开始第一次同步提问。</div>
+      <div id="sessionList" class="session-list"></div>
+    </section>
+  </main>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

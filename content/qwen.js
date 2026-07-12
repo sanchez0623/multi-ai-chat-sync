@@ -85,6 +85,17 @@
     findDeepThinkingToggle() {
       return A.dom.findByText(TOOLBAR_SELECTORS, ['深度思考', '思考模式']) ||
              A.dom.findByText(TOOLBAR_SELECTORS, THINK_TEXTS);
+    },
+    getAnswerText() {
+      return A.dom.lastAnswerText([
+        'div[class*="message-list"] div[class*="assistant"]',
+        'div[class*="conversation"] div[class*="answer"]',
+        'div[class*="chat-content"] div[class*="answer"]',
+        'div[class*="bubble"][class*="left"]',
+        'div[class*="receive-message"]',
+        'div[class*="answer-item"]',
+        'div[class*="markdown-body"]:last-of-type'
+      ]);
     }
   });
 })();
