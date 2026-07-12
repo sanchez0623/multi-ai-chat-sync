@@ -324,6 +324,8 @@
    *   getSendBtn(),         // 返回发送按钮
    *   findDeepThinkingToggle(),  // 可选：返回深度思考开关元素
    *   applyDeepThinking(enabled),  // 可选：自定义深度思考逻辑（如下拉框选择）
+   *                                 // enabled=true  进入深度思考，false 切回普通/快速模式
+   *                                 // 内部应自行判断当前态，已在目标态直接 return true
    *   noEnterFallback,      // 可选：禁用回车兜底（部分 SPA 对合成 Enter 事件敏感会崩页）
    * }
    */
@@ -419,7 +421,12 @@
         if (!input) return { ok: false, error: '输入框未找到' };
         await dom.setInputText(input, question);
         await new Promise((r) => setTimeout(r, 300));
-        if (deepThinking) await applyDeepThinking(true);
+        // 始终按目标态调用，确保页面与设置一致：
+        // - 当前在 深度思考(专家) 但要求快速 -> 切回快速
+        // - 当前在 快速 但要求深度思考 -> 切到专家
+        // 各平台 applyDeepThinking 内部有"已在目标态则直接 return true"逻辑，
+        // 对其它早已 return true 的平台（kimi/yuanbao/zhipu）无副作用。
+        await applyDeepThinking(!!deepThinking);
 
         // 发送前快照当前页面上已有的回答文本（旧轮次），collectAnswer 只接受快照外的新文本
         const excludeTexts = new Set(dom.listAnswerTexts(config.answerSelectors || [], question));
