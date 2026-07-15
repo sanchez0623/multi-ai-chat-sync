@@ -1,0 +1,23 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Extension build
+*.zip
+*.crx
+*.pem
+
+# Env
+.env
+.env.local
