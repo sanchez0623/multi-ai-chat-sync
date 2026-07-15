@@ -41,7 +41,7 @@
 
   // 当前 content script 版本号：扩展升级时，background 比对 PING 响应里的 version
   // 字段判断页面上的 content script 是否需要被强制重新注入。
-  const CONTENT_VERSION = '1.1.11';
+  const CONTENT_VERSION = '1.1.12';
 
   const DEBUG = true;
   const TAG = '[AISync]';
@@ -475,8 +475,19 @@
 
       const INTERVAL = 2000;
       const MAX_WAIT = 120000;        // 最长收集 2 分钟
-      const STABLE_ROUNDS = 2;        // 连续 2 轮（4s）无变化视为稳定
+      const MIN_COLLECT_MS = 10000;   // 最短收集 10 秒，避免长答案生成中短暂停顿就被截断
       const EMPTY_THRESHOLD = 6;      // 连续 6 轮（12s）没新文本，认为平台没回答
+
+      // 根据已有回答长度动态计算稳定轮数要求
+      // 短回答 ≈ 生成快，长回答 ≈ 生成慢（可能中途停顿 > 4s）
+      function getRequiredStableRounds(text) {
+        const len = (text || '').length;
+        if (len < 80) return 2;       // 短回答：2 轮（4s）稳定即可
+        if (len < 300) return 4;      // 中等回答：4 轮（8s）稳定
+        if (len < 1000) return 6;     // 长回答：6 轮（12s）稳定
+        return 8;                      // 超长回答：8 轮（16s）稳定
+      }
+
       const start = Date.now();
       let lastText = '';
       let stableCount = 0;
@@ -523,10 +534,14 @@
         } else if (text && text === lastText) {
           stableCount++;
           emptyCount = 0;
-          if (stableCount >= STABLE_ROUNDS) {
+          const elapsed = Date.now() - start;
+          const requiredRounds = getRequiredStableRounds(text);
+          if (stableCount >= requiredRounds && elapsed >= MIN_COLLECT_MS) {
             A.sendToBackground({ type: MSG.ANSWER_UPDATE, sessionId, platform: config.key, status: 'done', answer: text });
             collecting.delete(sessionId);
-            A.log('collectAnswer done', config.key, sessionId, text.slice(0, 60));
+            A.log('collectAnswer done', config.key, sessionId,
+              'textLen=', text.length, 'requiredRounds=', requiredRounds,
+              'elapsed=', elapsed, 'stableCount=', stableCount);
             return;
           }
         } else if (!text) {
