@@ -41,7 +41,7 @@
 
   // 当前 content script 版本号：扩展升级时，background 比对 PING 响应里的 version
   // 字段判断页面上的 content script 是否需要被强制重新注入。
-  const CONTENT_VERSION = '1.1.11';
+  const CONTENT_VERSION = '1.1.12';
 
   const DEBUG = true;
   const TAG = '[AISync]';
